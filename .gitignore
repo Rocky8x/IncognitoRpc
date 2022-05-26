@@ -1,0 +1,19 @@
+__pycache__/
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+log/
+auto-env/
+reports/
+.DS_Store
+
+#vscode
+.vscode
+
+key
+keys
