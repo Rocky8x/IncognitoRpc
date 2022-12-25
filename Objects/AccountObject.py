@@ -10,12 +10,13 @@ from typing import List, Union
 from Configs import Constants
 from Configs.Configs import ChainConfig, TestConfig
 from Configs.Constants import PRV_ID, coin, PBNB_ID, PBTC_ID, Status, DAO_PRIVATE_K, BURNING_ADDR
+from Configs.TokenIds import pDEX_ACCESS
 from Drivers.IncCliWrapper import IncCliWrapper
 from Drivers.NeighborChainCli import NeighborChainCli
 from Drivers.Response import Response
 from Helpers import TestHelper
 from Helpers.Logging import config_logger
-from Helpers.TestHelper import l6, KeyExtractor
+from Helpers.TestHelper import l6, KeyExtractor, find_dict_path
 from Helpers.Time import WAIT, get_current_date_time
 from Objects.CoinObject import CustomTokenBalanceResponse, TXOResponse
 from Objects.PdexV3Objects import PdeV3State
@@ -28,6 +29,7 @@ class Account:
     _cache_custodian_inf = 'custodian_info'
     _cache_bal = 'bal'
     _cache_nft_id = 'nft_id'
+    _cache_access_id = "access_id"
 
     def set_remote_addr(self, addresses):
         """
@@ -71,22 +73,28 @@ class Account:
         @param kwargs:
         """
         self.key_info = {"PrivateKey": private_key,
-                         "PublicKey": "",
+                         "PublicKey": kwargs.get("public_key"),
                          "PaymentAddressV1": "",
                          "PaymentAddress": payment_k,
                          "ReadOnlyKey": "",
                          "OTAPrivateKey": "",
-                         "MiningKey": "",
+                         "MiningKey": kwargs.get("validator_key", kwargs.get("mining_key")),
                          "MiningPublicKey": "",
                          "ValidatorPublicKey": "",
-                         "ShardID": kwargs.get('shard')}
+                         "ShardID": kwargs.get('shard'),
+                         **kwargs}
         self.remote_addr = {}
         self.cache = {Account._cache_bal: {},
-                      Account._cache_nft_id: []}
-        self.REQ_HANDLER = handler
+                      Account._cache_nft_id: [],
+                      Account._cache_access_id: []}
+        from Objects.NodeObject import Node
+        self.REQ_HANDLER: Node = handler
 
         if private_key and not payment_k:  # generate all key from private key if there's privatekey but not paymentkey
-            self.key_info = IncCliWrapper().key_info(self.private_key)
+            self.get_key_info()
+
+    def get_key_info(self):
+        self.key_info = IncCliWrapper().key_info(self.private_key)
 
     def check_payment_key_version(self, key=None):
         """
@@ -149,6 +157,10 @@ class Account:
     def nft_ids(self) -> List:
         return self.cache[Account._cache_nft_id]
 
+    @property
+    def access_ids(self) -> List:
+        return self.cache[Account._cache_access_id]
+
     def save_nft_id(self, *nft_ids):
         for nft in nft_ids:
             self.nft_ids.append(nft) if nft not in self.nft_ids else None
@@ -196,7 +208,7 @@ class Account:
 
     def __hash__(self):
         # for using Account object as 'key' in dictionary
-        return int(str(self.private_key).encode('utf8').hex(), 16)
+        return int(str(self.payment_key).encode('utf8').hex(), 16)
 
     def __me(self):
         return f"(PrvK {self.private_key[-6:]})"
@@ -217,7 +229,7 @@ class Account:
     def calculate_shard_id(self):
         response = self.REQ_HANDLER.transaction().get_public_key_by_payment_key(self.payment_key)
         last_byte = response.get_result("PublicKeyInBytes")[-1]
-        self.key_info['ShardID'] = last_byte % 8
+        self.key_info['ShardID'] = last_byte % ChainConfig.ACTIVE_SHARD
         return self.shard
 
     def __str__(self):
@@ -361,7 +373,7 @@ class Account:
         logger.info(f'Un-stake transaction for validator: {validator.validator_key}')
         return self.REQ_HANDLER.transaction(). \
             create_and_send_un_staking_transaction(self.private_key, validator.payment_key, validator.validator_key,
-                                                   tx_fee).attach_to_node(self.REQ_HANDLER)
+                                                   tx_fee)
 
     def stk_stop_auto_stake_him(self, him):
         logger.info(f"Stop auto stake other: {him.validator_key}")
@@ -371,80 +383,55 @@ class Account:
         logger.info(f"Wait until {self.validator_key} become a committee, timeout: {timeout}s")
         time_start = datetime.datetime.now()
         time_spent = 0
-        while timeout > time_spent:
+        beacon_bsd = self.REQ_HANDLER.get_beacon_best_state_detail_info()
+        while beacon_bsd.is_he_a_committee(self) is False:
+            self.REQ_HANDLER.wait_till_next_epoch(1, block_of_epoch=5)
             beacon_bsd = self.REQ_HANDLER.get_beacon_best_state_detail_info()
-            staked_shard = beacon_bsd.is_he_a_committee(self)
-            if staked_shard is False:
-                self.REQ_HANDLER.wait_till_next_epoch(1, block_of_epoch=5)
-            else:
-                e2 = beacon_bsd.get_epoch()
-                h = beacon_bsd.get_beacon_height()
-                logger.info(f"Already a committee at epoch {e2}, block height {h}")
-                return e2
             time_spent = (datetime.datetime.now() - time_start).seconds
-        logger.info(f"Waited {time_spent}s but still not yet become committee")
-        return None
+            if timeout <= time_spent:
+                break
+        if beacon_bsd.is_he_a_committee(self) is not False:
+            e2 = beacon_bsd.get_epoch()
+            h = beacon_bsd.get_beacon_height()
+            logger.info(f"Already a committee at epoch {e2}, block height {h}")
+            return e2
+        else:
+            logger.info(f"Waited {time_spent}s but still not yet become committee")
+            return None
 
     def stk_wait_till_i_am_in_waiting_next_random(self, check_cycle=ChainConfig.BLOCK_TIME,
                                                   timeout=ChainConfig.STK_WAIT_TIME_OUT):
         t = timeout
-        logger.info(f"Wait until {self.validator_key} exist in waiting next random, check every {check_cycle}s,"
-                    f" timeout: {timeout}s")
-        while timeout > check_cycle:
+        logger.info(
+            f"Wait until {self.validator_key} exist in waiting next random, check every {check_cycle}s, timeout: {timeout}s")
+        beacon_bsd = self.REQ_HANDLER.get_beacon_best_state_detail_info()
+        while beacon_bsd.is_he_in_waiting_next_random(self) is False:
+            WAIT(check_cycle)
             beacon_bsd = self.REQ_HANDLER.get_beacon_best_state_detail_info()
-            staked_in_waiting_4random = beacon_bsd.is_he_in_waiting_next_random(self)
-            if staked_in_waiting_4random is False:
-                WAIT(check_cycle)
-                timeout -= check_cycle
-            else:
-                e2 = beacon_bsd.get_epoch()
-                h = beacon_bsd.get_beacon_height()
-                logger.info(f"Already exists in waiting next random at epoch {e2}, block height {h}")
-                return e2
-        logger.info(f"Waited {t}s but still not yet exist in waiting next random")
-        return None
+            timeout -= check_cycle
+            if timeout <= check_cycle:
+                break
+        if beacon_bsd.is_he_in_waiting_next_random(self) is not False:
+            e2 = beacon_bsd.get_epoch()
+            h = beacon_bsd.get_beacon_height()
+            logger.info(f"Already exists in waiting next random at epoch {e2}, block height {h}")
+            return e2, h
+        else:
+            logger.info(f"Waited {t}s but still not yet exist in waiting next random")
+            return None
 
-    def stk_wait_till_i_am_in_shard_pending(self, timeout=ChainConfig.STK_WAIT_TIME_OUT, sfv3=False):
+    def stk_wait_till_i_am_in_shard_pending(self, timeout=ChainConfig.STK_WAIT_TIME_OUT, sfv3=True):
         logger.info(f"Wait until {self.validator_key} exist in shard pending, timeout: {timeout}s")
         time_start = datetime.datetime.now()
         time_spent = 0
         block_per_epoch = ChainConfig.BLOCK_PER_EPOCH
-        while timeout > time_spent:
-            beacon_bsd = self.REQ_HANDLER.get_beacon_best_state_detail_info()
-            staked_shard = beacon_bsd.is_he_in_shard_pending(self)
-            e2 = beacon_bsd.get_epoch()
-            h = beacon_bsd.get_beacon_height()
-            if staked_shard is False:
-                if sfv3:
-                    WAIT(ChainConfig.BLOCK_TIME)
-                else:
-                    index_height = h % block_per_epoch
-                    if index_height <= ChainConfig.RANDOM_TIME:
-                        num_of_block_wait = ChainConfig.RANDOM_TIME - index_height
-                        time_to_wait = ChainConfig.get_epoch_n_block_time(0, num_of_block_wait)
-                        logger.info(f'Current height = {h} @ epoch = {e2}. '
-                                    f'Wait {time_to_wait}s until epoch {e2} and B height {h + num_of_block_wait}')
-                        WAIT(time_to_wait)
-                    else:
-                        self.REQ_HANDLER.wait_till_next_epoch(1, block_of_epoch=ChainConfig.RANDOM_TIME + 1)
-                time_spent = (datetime.datetime.now() - time_start).seconds
+        beacon_bsd = self.REQ_HANDLER.get_beacon_best_state_detail_info()
+        while beacon_bsd.is_he_in_shard_pending(self) is False:
+            if sfv3:
+                WAIT(ChainConfig.BLOCK_TIME)
             else:
-                logger.info(f"Already exists in shard pending at epoch {e2}, block height {h}")
-                return staked_shard, e2
-        logger.info(f"Waited {time_spent}s but still not yet exist in shard pending")
-        return
-
-    def stk_wait_till_i_am_in_sync_pool(self, timeout=ChainConfig.STK_WAIT_TIME_OUT):
-        logger.info(f"Wait until {self.validator_key} exist in sync pool, timeout: {timeout}s")
-        time_start = datetime.datetime.now()
-        time_spent = 0
-        block_per_epoch = ChainConfig.BLOCK_PER_EPOCH
-        while timeout > time_spent:
-            beacon_bsd = self.REQ_HANDLER.get_beacon_best_state_detail_info()
-            staked_shard = beacon_bsd.is_he_in_sync_pool(self)
-            e2 = beacon_bsd.get_epoch()
-            h = beacon_bsd.get_beacon_height()
-            if staked_shard is False:
+                e2 = beacon_bsd.get_epoch()
+                h = beacon_bsd.get_beacon_height()
                 index_height = h % block_per_epoch
                 if index_height <= ChainConfig.RANDOM_TIME:
                     num_of_block_wait = ChainConfig.RANDOM_TIME - index_height
@@ -454,45 +441,91 @@ class Account:
                     WAIT(time_to_wait)
                 else:
                     self.REQ_HANDLER.wait_till_next_epoch(1, block_of_epoch=ChainConfig.RANDOM_TIME + 1)
-                time_spent = (datetime.datetime.now() - time_start).seconds
+            beacon_bsd = self.REQ_HANDLER.get_beacon_best_state_detail_info()
+            time_spent = (datetime.datetime.now() - time_start).seconds
+            if timeout <= time_spent:
+                break
+        if beacon_bsd.is_he_in_shard_pending(self):
+            e2 = beacon_bsd.get_epoch()
+            h = beacon_bsd.get_beacon_height()
+            staked_shard = beacon_bsd.is_he_in_shard_pending(self)
+            logger.info(f"Already exists in shard pending at epoch {e2}, block height {h}")
+            return staked_shard
+        else:
+            logger.info(f"Waited {time_spent}s but still not yet exist in shard pending")
+            return None
+
+    def stk_wait_till_i_am_in_sync_pool(self, timeout=ChainConfig.STK_WAIT_TIME_OUT):
+        logger.info(f"Wait until {self.validator_key} exist in sync pool, timeout: {timeout}s")
+        time_start = datetime.datetime.now()
+        time_spent = 0
+        block_per_epoch = ChainConfig.BLOCK_PER_EPOCH
+        beacon_bsd = self.REQ_HANDLER.get_beacon_best_state_detail_info()
+        while beacon_bsd.is_he_in_sync_pool(self) is False:
+            e2 = beacon_bsd.get_epoch()
+            h = beacon_bsd.get_beacon_height()
+            index_height = h % block_per_epoch
+            if index_height <= ChainConfig.RANDOM_TIME:
+                num_of_block_wait = ChainConfig.RANDOM_TIME - index_height
+                time_to_wait = ChainConfig.get_epoch_n_block_time(0, num_of_block_wait)
+                logger.info(f'Current height = {h} @ epoch = {e2}. '
+                            f'Wait {time_to_wait}s until epoch {e2} and B height {h + num_of_block_wait}')
+                WAIT(time_to_wait)
             else:
-                logger.info(f"Already exists in shard pending at epoch {e2}, block height {h}")
-                return staked_shard, e2
-        logger.info(f"Waited {time_spent}s but still not yet exist in sync pool")
-        return
+                self.REQ_HANDLER.wait_till_next_epoch(1, block_of_epoch=ChainConfig.RANDOM_TIME + 1)
+            beacon_bsd = self.REQ_HANDLER.get_beacon_best_state_detail_info()
+            time_spent = (datetime.datetime.now() - time_start).seconds
+            if timeout <= time_spent:
+                break
+        if beacon_bsd.is_he_in_sync_pool(self) is not False:
+            e2 = beacon_bsd.get_epoch()
+            h = beacon_bsd.get_beacon_height()
+            staked_shard = beacon_bsd.is_he_in_sync_pool(self)
+            logger.info(f"Already exists in shard sync_pool at epoch {e2}, block height {h}")
+            return staked_shard
+        else:
+            logger.info(f"Waited {time_spent}s but still not yet exist in sync pool")
+            return None
 
     def stk_wait_till_i_am_out_of_autostaking_list(self, timeout=ChainConfig.STK_WAIT_TIME_OUT):
         logger.info(f"Wait until {self.validator_key} does not exist in the autostaking list, timeout: {timeout}s")
         time_start = datetime.datetime.now()
         time_spent = 0
-        while timeout > time_spent:
-            beacon_bsd = self.REQ_HANDLER.get_beacon_best_state_detail_info()
-            if beacon_bsd.get_auto_staking_committees(self) is None:
-                e2 = beacon_bsd.get_epoch()
-                h = beacon_bsd.get_beacon_height()
-                logger.info(f"Validator is out of autostaking list at epoch {e2}, block height {h}")
-                return e2
+        beacon_bsd = self.REQ_HANDLER.get_beacon_best_state_detail_info()
+        while beacon_bsd.get_auto_staking_committees(self) is not None:
             self.REQ_HANDLER.wait_till_next_epoch(1, block_of_epoch=5)
             time_spent = (datetime.datetime.now() - time_start).seconds
-        logger.info(f"Waited {time_spent}s but still exist in the autostaking list")
-        return None
+            beacon_bsd = self.REQ_HANDLER.get_beacon_best_state_detail_info()
+            if timeout <= time_spent:
+                break
+        if beacon_bsd.get_auto_staking_committees(self) is None:
+            e2 = beacon_bsd.get_epoch()
+            h = beacon_bsd.get_beacon_height()
+            logger.info(f"Validator is out of autostaking list at epoch {e2}, block height {h}")
+            return e2
+        else:
+            logger.info(f"Waited {time_spent}s but still exist in the autostaking list")
+            return None
 
     def stk_wait_till_i_am_swapped_out_of_committee(self, timeout=ChainConfig.STK_WAIT_TIME_OUT):
         logger.info(f"Wait until {self.validator_key} no longer a committee, timeout: {timeout}s")
         time_start = datetime.datetime.now()
         time_spent = 0
-        while timeout > time_spent:
-            beacon_bsd = self.REQ_HANDLER.get_beacon_best_state_detail_info()
-            if not (beacon_bsd.is_he_a_committee(self) is False):  # is_he_a_committee returns False or shard number
-                # (number which is not False) so must use this comparison to cover the case shard =0
-                self.REQ_HANDLER.wait_till_next_epoch(1, block_of_epoch=5)
-            else:
-                e2 = beacon_bsd.get_epoch()
-                logger.info(f"Swapped out of committee at epoch {e2}")
-                return e2
+        beacon_bsd = self.REQ_HANDLER.get_beacon_best_state_detail_info()
+        while beacon_bsd.is_he_a_committee(self) is not False:  # is_he_a_committee returns False or shard number
+            # (number which is not False) so must use this comparison to cover the case shard =0
+            self.REQ_HANDLER.wait_till_next_epoch(1, block_of_epoch=5)
             time_spent = (datetime.datetime.now() - time_start).seconds
-        logger.info(f"Waited {time_spent}s but still a committee")
-        return None
+            beacon_bsd = self.REQ_HANDLER.get_beacon_best_state_detail_info()
+            if timeout <= time_spent:
+                break
+        if beacon_bsd.is_he_a_committee(self) is False:
+            e2 = beacon_bsd.get_epoch()
+            logger.info(f"Swapped out of committee at epoch {e2}")
+            return e2
+        else:
+            logger.info(f"Waited {time_spent}s but still a committee")
+            return None
 
     def stk_wait_till_i_have_reward(self, token_id=None, check_cycle=120, timeout=ChainConfig.STK_WAIT_TIME_OUT):
         t = timeout
@@ -500,17 +533,19 @@ class Account:
             token_id = 'PRV'
         logger.info(
             f'Wait until {self.validator_key} has reward: {token_id}, check every {check_cycle}s, timeout: {timeout}s')
-        while timeout > check_cycle:
-            reward = self.stk_get_reward_amount(token_id)
-            if reward is None:
-                WAIT(check_cycle)
-                timeout -= check_cycle
-            else:
-                e2 = self.REQ_HANDLER.help_get_current_epoch()
-                logger.info(f"Rewarded {reward} : {token_id} at epoch {e2}")
-                return reward
-        logger.info(f"Waited {t}s but still has no reward")
-        return None
+        while self.stk_get_reward_amount(token_id) is None:
+            WAIT(check_cycle)
+            timeout -= check_cycle
+            if timeout <= check_cycle:
+                break
+        reward = self.stk_get_reward_amount(token_id)
+        if reward is not None:
+            e2 = self.REQ_HANDLER.help_get_current_epoch()
+            logger.info(f"Rewarded {reward} : {token_id} at epoch {e2}")
+            return reward
+        else:
+            logger.info(f"Waited {t}s but still has no reward")
+            return None
 
     def get_balance(self, token_id=PRV_ID, **kwargs):
         from_cache = kwargs.get('cache', False)
@@ -536,11 +571,17 @@ class Account:
         logger.info(f"{self.__me()}, token id = {l6(token_id)}, bal = {coin(balance, False)} ")
         return balance
 
-    def get_assets(self):
+    def get_assets(self, tokens=None):
         assets = {token.get_token_id(): token.get_token_amount() for token in
                   self.list_owned_custom_token().get_tokens_info()}
-        assets[PRV_ID] = self.get_balance()
-        return assets
+        if tokens:
+            return_assets = {token: assets.get(token, 0) for token in tokens}
+            if PRV_ID in tokens:
+                return_assets[PRV_ID] = self.get_balance()
+        else:
+            return_assets = assets
+            return_assets[PRV_ID] = self.get_balance()
+        return return_assets
 
     def sum_my_utxo(self, token_id=PRV_ID):
         try:
@@ -603,7 +644,7 @@ class Account:
         send_param = dict()
         logger.info(f"{self.__me()} sending prv to multiple accounts: --------------------------------------------- ")
         for acc, amount in dict_to_account_and_amount.items():
-            logger.info(f'{amount} prv to shard {acc.shard} | {acc.__me()} | {acc.__to_me()}')
+            logger.info(f'{amount} prv to shardshard {acc.shard} | {acc.__me()} | {acc.__to_me()}')
             send_param[acc.payment_key] = amount
         logger.info("---------------------------------------------------------------------------------- ")
 
@@ -625,15 +666,15 @@ class Account:
 
         logger.info(f'Sending everything to {to_account}')
         # defrag account so that the custom fee = fee x 2 as below
-        defrag = self.defragment_account()
-        if defrag is not None:
-            defrag.subscribe_transaction()
+        consolidate_tx = self.consolidate_utxo()
+        if consolidate_tx is not None:
+            consolidate_tx.get_transaction_by_hash()
         balance = self.get_balance()
-        fee, size = self.get_estimate_fee_and_size(to_account, balance - 100, privacy=privacy)
+        fee, size = self.get_estimate_fee_and_size(to_account, balance - ChainConfig.FEE_MIN, privacy=privacy)
         logger.info(f'''EstimateFeeCoinPerKb = {fee}, EstimateTxSizeInKb = {size}''')
         if balance > 0:
-            return self.send_prv_to(to_account, balance - 100, int(100 / (size + 1)),
-                                    privacy).subscribe_transaction()
+            return self.send_prv_to(to_account, balance - ChainConfig.FEE_MIN, int(ChainConfig.FEE_MIN / (size + 1)),
+                                    privacy).get_transaction_by_hash()
 
     def count_unspent_output_coins(self, token_id='', from_height=0):
         """
@@ -647,7 +688,7 @@ class Account:
                                                                             from_height).get_result("Outputs")
         return len(response[self.private_key])
 
-    def defragment_account(self, min_bill=1000000000000000):
+    def defragment_account(self, min_bill=None, tx_fee=-1, privacy=1):
         """
         check if account need to be defrag by count unspent coin,
             if count > 1 then defrag
@@ -655,11 +696,27 @@ class Account:
         @return: Response object if need to defrag, None if not to
         """
         logger.info('Defrag account')
-
-        if self.count_unspent_output_coins() > 1:
-            return self.REQ_HANDLER.transaction().de_fragment_prv(self.private_key, min_bill)
+        min_bill = 1000000000000000 if min_bill is None else min_bill
+        if self.count_unspent_output_coins() > 10:
+            return self.REQ_HANDLER.transaction().de_fragment_prv(self.private_key, min_bill, tx_fee, privacy)
         logger.info('No need to defrag!')
         return None
+
+    def consolidate_utxo(self, token_id=PRV_ID):
+        count_utxo = self.count_unspent_output_coins(token_id)
+        if count_utxo <= 5:
+            logger.info(f"UTXO of {token_id} is less than 6, no need for consolidation")
+            return
+        prv_bal = self.get_balance()
+        fee = prv_bal - ChainConfig.FEE_MIN
+        if fee < ChainConfig.FEE_MIN:
+            raise RuntimeError(f"Not enough PRV for tx fee, "
+                               f"min fee = {ChainConfig.FEE_MIN} while balance = {prv_bal} PRV")
+        if token_id == PRV_ID:
+            return self.send_prv_to(self, prv_bal - fee)
+        else:
+            token_bal = self.get_balance(token_id)
+            return self.send_token_to(self, token_bal)
 
     def subscribe_cross_output_coin(self, timeout=120):
         logger.info(f'{self.__me()} Subscribe cross output coin')
@@ -706,8 +763,8 @@ class Account:
         token1, token2 = list(pair_dict.keys())
         amount1, amount2 = list(pair_dict.values())
         pair_id = f'pde_{l6(token1)}_{l6(token2)}_{get_current_date_time()}'
-        tx1 = self.pde_contribute(token1, amount1, pair_id).expect_no_error().subscribe_transaction()
-        tx2 = self.pde_contribute(token2, amount2, pair_id).expect_no_error().subscribe_transaction()
+        tx1 = self.pde_contribute(token1, amount1, pair_id).expect_no_error().get_transaction_by_hash()
+        tx2 = self.pde_contribute(token2, amount2, pair_id).expect_no_error().get_transaction_by_hash()
         return tx1, tx2
 
     def pde_contribute(self, token_id, amount, pair_id):
@@ -754,8 +811,8 @@ class Account:
         token1, token2 = list(pair_dict.keys())
         amount1, amount2 = list(pair_dict.values())
         pair_id = f'pde_{l6(token1)}_{l6(token2)}_{get_current_date_time()}'
-        tx1 = self.pde_contribute_v2(token1, amount1, pair_id).expect_no_error().subscribe_transaction()
-        tx2 = self.pde_contribute_v2(token2, amount2, pair_id).expect_no_error().subscribe_transaction()
+        tx1 = self.pde_contribute_v2(token1, amount1, pair_id).expect_no_error().get_transaction_by_hash()
+        tx2 = self.pde_contribute_v2(token2, amount2, pair_id).expect_no_error().get_transaction_by_hash()
         return tx1, tx2
 
     def send_token_to(self, receiver, token_id, amount_custom_token,
@@ -1009,17 +1066,27 @@ class Account:
 
     def pde3_make_raw_trade_tx(self, token_sell, token_buy, sell_amount, min_acceptable, trade_path, trading_fee,
                                use_prv_fee=True):
-        return self.REQ_HANDLER.pde3_make_trade_tx(self.private_key, token_sell, token_buy, sell_amount,
-                                                   min_acceptable, trade_path, trading_fee, use_prv_fee)
+        return self.REQ_HANDLER.cli().pde3_make_swap_raw_tx(self.private_key, token_sell, token_buy, sell_amount,
+                                                            min_acceptable, trade_path, trading_fee, use_prv_fee)
 
-    def pde3_withdraw_lp_fee(self, receiver, pool_pair_id, nft_id, token_amount=1,
-                             token_tx_type=1, token_fee=0, token_name="", token_symbol="",
-                             burning_tx=None, tx_fee=-1, tx_privacy=1):
-        payment_key = receiver.payment_key if isinstance(receiver, Account) else receiver
+    def pde3_withdraw_lp_fee_nft(self, pool_pair_id, nft_id, receiver=None, tx_fee=-1, tx_privacy=1, **kwarg):
+        if receiver is None:
+            receiver_addr = self.payment_key
+        elif isinstance(receiver, Account):
+            receiver_addr = receiver.payment_key
+        elif isinstance(receiver, str):
+            receiver_addr = receiver
+        else:
+            raise TypeError(
+                "Receiver must be None (withdraw to me) or an Account object or payment address string")
         return self.REQ_HANDLER.dex_v3() \
-            .withdraw_lp_fee(self.private_key, payment_key, token_amount, nft_id, pool_pair_id, nft_id,
-                             token_tx_type, token_fee, token_name, token_symbol, burning_tx,
-                             tx_fee=tx_fee, tx_privacy=tx_privacy)
+            .withdraw_lp_fee_nft(self.private_key, pool_pair_id, nft_id, receiver_addr,
+                                 tx_fee=tx_fee, tx_privacy=tx_privacy, **kwarg)
+
+    def pde3_withdraw_lp_fee_ota(self, pool_pair_id, access_id, tx_fee=-1, tx_privacy=1):
+        return self.REQ_HANDLER.dex_v3() \
+            .withdraw_lp_fee_ota(self.private_key, pool_pair_id, access_id, tx_fee=tx_fee,
+                                 tx_privacy=tx_privacy)
 
     def pde3_stake(self, stake_amount, staking_pool_id, nft_id, tx_fee=-1, tx_privacy=1):
         nft_id = nft_id if nft_id else self.nft_ids[0]
@@ -1058,21 +1125,19 @@ class Account:
         @return:
         """
         nft_id = nft_id if nft_id else self.nft_ids[0]
-        if isinstance(pool, PdeV3State.PoolPairData):
-            pair_id = pool.get_pool_pair_id()
-            share_amount = pool.get_share(nft_id).amount if share_amount is None else share_amount
+        if not isinstance(pool, PdeV3State.PoolPairData) and isinstance(pool, str):
+            pool = self.REQ_HANDLER.pde3_get_state().get_pool_pair(id=pool)
         else:
-            pair_id = pool
-            share_amount = self.REQ_HANDLER.pde3_get_state().get_pool_pair(id=pool).get_share(nft_id).amount \
-                if share_amount is None else share_amount
+            raise RuntimeError(f"Pool must be a string or PdeV3State.PoolPairData, got {type(pool)} instead")
+        share_amount = pool.get_share(nft_id).amount if share_amount is None else share_amount
         logger.info(f"PDE3 Withdraw liquidity, private k: {self.private_key[-6:]}, NFT ID {nft_id}\n   "
-                    f"pair: {pair_id}\n   "
-                    f"share amount withdraw: {share_amount}")
+                    f"pair: {pool.get_pool_pair_id()}\n   "
+                    f"share amount available | withdraw: {pool.get_share(nft_id).amount} | {share_amount}")
         return self.REQ_HANDLER.dex_v3() \
-            .withdraw_liquidity(self.private_key, pair_id, nft_id, str(share_amount), tx_fee=tx_fee,
+            .withdraw_liquidity(self.private_key, pool.get_pool_pair_id(), nft_id, str(share_amount), tx_fee=tx_fee,
                                 tx_privacy=tx_privacy)
 
-    def pde3_mint_nft(self, amount=ChainConfig.Dex3.NFT_MINT_REQ, token_id=PRV_ID, tx_fee=-1, tx_privacy=1,
+    def pde3_mint_nft(self, amount=ChainConfig.Dex3.NFT_MINT_REQ, tx_fee=-1, tx_privacy=1,
                       force=False):
         if not force:
             if self.nft_ids:
@@ -1080,8 +1145,7 @@ class Account:
                             f"return the first one now and will not mint more: \n {self.nft_ids}")
                 return self.nft_ids[0]
         logger.info(f"{self.__me()} request minting new PDEX NFT ID")
-        response = self.REQ_HANDLER.dex_v3() \
-            .mint_nft(self.private_key, amount, token_id, tx_fee=tx_fee, tx_privacy=tx_privacy)
+        response = self.REQ_HANDLER.dex_v3().mint_nft(self.private_key, amount, tx_fee=tx_fee, tx_privacy=tx_privacy)
         try:
             response.get_transaction_by_hash()
         except AssertionError:
@@ -1109,9 +1173,7 @@ class Account:
             logger.info(f"{self.__me()} waited {wasted_time}s, but can't get new nft id after tx was confirmed")
             return None
 
-    def pde3_get_my_nft_ids(self, pde_state=None, force=False):
-        if not force and self.nft_ids:
-            return self.nft_ids
+    def pde3_get_my_nft_ids(self, pde_state=None):
         try:
             assert pde_state.get_nft_id() != {}
         except (AttributeError, AssertionError):
@@ -1138,10 +1200,32 @@ class Account:
             self.pde3_add_liquidity(PRV_ID, 100, contribution.get_amplifier(), contribution.get_contribution_id(),
                                     nft, contribution.get_pool_pair_id()).get_transaction_by_hash()
 
+    def pde3_clean_my_waiting_contribution(self,pde_state=None):
+        pde_state = self.REQ_HANDLER.pde3_get_state() if pde_state is None else pde_state
+        contribution_to_clean = []
+        for contribution in pde_state.get_waiting_contribution():
+            if contribution.get_token_id() in self.nft_ids:
+                contribution_to_clean.append(contribution)
+        not_my_nft = ''
+        for nft in pde_state.get_nft_id().keys():
+            if nft not in self.nft_ids:
+                not_my_nft = nft
+                break
+        for contribution in contribution_to_clean:
+            self.pde3_add_liquidity(PRV_ID, 100, contribution.get_amplifier(), contribution.get_contribution_id(),
+                                    not_my_nft, contribution.get_pool_pair_id()).get_transaction_by_hash()
+
     def pde3_modify_param(self, new_config: Union[dict, PdeV3State.Param], tx_fee=10, tx_privacy=0):
         new_config = new_config.get_configs() if isinstance(new_config, PdeV3State.Param) else new_config
         return self.REQ_HANDLER.dex_v3().modify_param(self.private_key, new_config, tx_fee=tx_fee,
                                                       tx_privacy=tx_privacy)
+
+    def pde3_get_my_access_ids(self, pde_state=None):
+        if not pde_state:
+            pde_state = self.REQ_HANDLER.pde3_get_state().data()
+        self.cache[Account._cache_access_id] = [find_dict_path(pde_state, c.get_public_key_base64())[-2]
+                                                for c in self.list_utxo(pDEX_ACCESS).get_coins()]
+        return self.cache[Account._cache_access_id]
 
     def wait_for_balance_change(self, token_id=PRV_ID, from_balance=None, least_change_amount=1, check_interval=10,
                                 timeout=100):
@@ -1228,7 +1312,7 @@ class Account:
         req_tx = self.REQ_HANDLER.portal().create_n_send_tx_with_req_matching_redeem(self.private_key,
                                                                                      self.payment_key,
                                                                                      redeem_id)
-        req_tx.subscribe_transaction()
+        req_tx.get_transaction_by_hash()
         info = RedeemReqInfo()
         info.get_req_matching_redeem_status(req_tx.get_tx_id())
 
@@ -1374,6 +1458,9 @@ class Account:
         except KeyError:
             return 0
 
+    def portal4_gen_ota_receiver(self):
+        return self.REQ_HANDLER.portal_v4().gen_ota_receiver(self.payment_key).get_result()
+
     def convert_payment_k_to_v1(self, key=None):
         key = key if key else self.payment_key
         return self.REQ_HANDLER.util_rpc().convert_payment_k_to_v1(key).get_result()
@@ -1438,7 +1525,8 @@ class Account:
 
             else:
                 # tx should be succeed
-                send_tx.expect_no_error().get_transaction_by_hash()
+                send_tx.expect_no_error()
+                self.REQ_HANDLER.get_tx_by_hash(send_tx.get_tx_id())
                 start = mid
                 mid += each
                 wasted_time = 0
@@ -1487,6 +1575,9 @@ class AccountGroup:
         return self
 
     def __init__(self, *accounts):
+        """
+        @param accounts: Account object or private key (string)
+        """
         self.mnemonic = None
         self.account_list: List[Account] = []
         list_key = []
@@ -1624,11 +1715,11 @@ class AccountGroup:
             balance_result[acc] = thread.result()
         return balance_result
 
-    def get_assets(self):
+    def get_assets(self, tokens=None):
         thread_results = {}
         with ThreadPoolExecutor() as tpe:
             for acc in self:
-                thread_results[acc] = tpe.submit(acc.get_assets)
+                thread_results[acc] = tpe.submit(acc.get_assets, tokens)
         return {acc: thread.result() for acc, thread in thread_results.items()}
 
     def submit_key(self, key_type='ota'):
@@ -1660,21 +1751,21 @@ class AccountGroup:
     def get_random_account(self):
         return self.account_list[random.randrange(len(self.account_list))]
 
-    def pde3_mint_nft(self, amount=coin(1), token_id=PRV_ID, tx_fee=-1, tx_privacy=1, force=False):
+    def pde3_mint_nft(self, amount=coin(1), tx_fee=-1, tx_privacy=1, force=False):
         with ThreadPoolExecutor() as e:
             for acc in self:  # bug IC-1519
                 time.sleep(0.3)
-                e.submit(acc.pde3_mint_nft, amount, token_id, tx_fee, tx_privacy, force)
-                # acc.pde3_mint_nft(amount, token_id, tx_fee, tx_privacy, force)
+                e.submit(acc.pde3_mint_nft, amount, tx_fee, tx_privacy, force)
+                # acc.pde3_mint_nft(amount, tx_fee, tx_privacy, force)
         return self
 
-    def pde3_get_nft_ids(self, pde_state=None, force=False):
+    def pde3_get_nft_ids(self, pde_state=None):
         pde_state = self[0].REQ_HANDLER.pde3_get_state(key_filter="NftIDs") if not pde_state else pde_state
         pde_state = self[0].REQ_HANDLER.pde3_get_state(key_filter="NftIDs") if pde_state.get_nft_id() == {} \
             else pde_state
         with ThreadPoolExecutor() as e:
             for acc in self:
-                e.submit(acc.pde3_get_my_nft_ids, pde_state, force)
+                e.submit(acc.pde3_get_my_nft_ids, pde_state)
         return self
 
     def pde3_make_raw_trade_txs(self, token_sell, token_buy, trade_amount, min_acceptable, trade_path,
@@ -1697,8 +1788,39 @@ class AccountGroup:
                 dispersion[acc.shard] = 1
         return dict(sorted(dispersion.items()))
 
+    def split_cross_shard(self):
+        """
+        Split an AccountGroup into 2, Account has same index of both group will belong to different shards
+        :return:
+        """
+        acc = self.account_list.copy()
+        senders, receivers = [], []
+        while len(acc) > 0:
+            try:
+                sender = acc.pop(0)
+                senders.append(sender)
+                for i in range(len(acc)):
+                    receiver = acc.pop(0)
+                    if sender.shard != receiver.shard:
+                        receivers.append(receiver)
+                        break
+                    else:
+                        acc.append(receiver)
+                if i == len(acc):
+                    break
+            except IndexError:
+                pass
+        return AccountGroup(*senders), AccountGroup(*receivers)
+
     @staticmethod
-    def gen_accounts(mnemonic=None, num_of_acc=1):
+    def gen_accounts(mnemonic=None, num_of_acc=1, shards=range(8)):
+        """
+        Generate a new AccountGroup
+        :param mnemonic:
+        :param num_of_acc:
+        :param shards: list of shard to gen, default = [0, 1, 2, 3, 4, 5, 6, 7]
+        :return:
+        """
         acc_group = AccountGroup()
         if mnemonic:
             accounts_raw = IncCliWrapper().import_account(mnemonic, num_of_acc)
@@ -1709,8 +1831,41 @@ class AccountGroup:
         for raw_acc in accounts_raw:
             acc = Account()
             acc.key_info = raw_acc
-            acc_group.append(acc)
+            if acc.shard in shards:
+                acc_group.append(acc)
         return acc_group
+
+    def defrag_prv(self, max_utxo=10, min_bill=None):
+        acc_to_defrag = copy.copy(self.account_list)
+        while 1:
+            to_remove = []
+            with ThreadPoolExecutor() as tpe:
+                threads = {acc: tpe.submit(acc.list_utxo, PRV_ID) for acc in acc_to_defrag}
+            utxo_count = {acc: len(r.result().get_coins()) for acc, r in threads.items()}
+            for acc, count in utxo_count.items():
+                print(f"{acc.private_key[-8:]} has {count} utxo")
+                if count < max_utxo:
+                    acc_to_defrag.remove(acc)
+                    print(f"   No need defrag, remove. Num of acc left {len(acc_to_defrag)}")
+            with ThreadPoolExecutor() as tpe:
+                for acc in acc_to_defrag:
+                    tpe.submit(acc.defragment_account, min_bill)
+            if not acc_to_defrag:
+                break
+            print("Wait for 30s")
+            time.sleep(30)
+
+    def consolidate_balance(self, account_to, keep_amount, token=PRV_ID):
+        balances = self.get_balance(token)
+        send_amount = {acc: balance - keep_amount for acc, balance in balances.items()}
+        with ThreadPoolExecutor() as tpe:
+            if token == PRV_ID:
+                for acc, amount in send_amount.items():
+                    tpe.submit(acc.send_prv_to, account_to, amount)
+            else:
+                acc: Account
+                for acc, amount in send_amount.items():
+                    tpe.submit(acc.send_token_to(account_to, token, amount))
 
 
 PORTAL_FEEDER = Account(ChainConfig.Portal.FEEDER_PRIVATE_K)

@@ -10,7 +10,7 @@ logger = config_logger(__name__)
 def load_test_data(name):
     logger.info(f'Loading: test data {name}')
     try:
-        return __import__(f'TestData.{name}', fromlist=['object'])
+        return __import__(f'environments.TestData.{name}', fromlist=['object'])
     except ModuleNotFoundError:
         raise Exception(f"!!! Test data not found: {name}")
 
@@ -18,7 +18,7 @@ def load_test_data(name):
 def load_test_bed(name):
     logger.info(f'Loading test bed: {name}')
     try:
-        return __import__(f'TestBeds.{name}', fromlist=['object'])
+        return __import__(f'environments.TestBeds.{name}', fromlist=['object'])
     except ModuleNotFoundError:
         raise Exception(f"!!! Test bed not found: {name}")
 

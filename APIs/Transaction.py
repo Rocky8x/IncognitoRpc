@@ -210,10 +210,10 @@ class TransactionRpc(BaseRpcApi):
                          ]). \
             execute()
 
-    def de_fragment_prv(self, private_key, min_bill=1000000000000000):
+    def de_fragment_prv(self, private_key, min_bill=1000000000000000, tx_fee=-1, privacy=1):
         return self.rpc_connection. \
             with_method("defragmentaccount"). \
-            with_params([private_key, min_bill, -1, 0]). \
+            with_params([private_key, min_bill, tx_fee, privacy]). \
             execute()
 
     def de_fragment_token(self, private_k, token_id, defrag_amount=0, privacy=True):
@@ -595,7 +595,7 @@ class TransactionDetail(RPCResponseWithTxHash):
         version = ChainConfig.PRIVACY_VERSION
         privacy = privacy_flag and detail_proof.check_proof_privacy()
         if version == 2:
-            logger.info(f'In v2, privacy must always be true no mater the hell you want')
+            logger.info(f'In v2, privacy is always enable')
             assert privacy, f'Expected privacy = True, actual = {privacy}'
         else:
             assert privacy == expected_privacy, f'Expected privacy = {expected_privacy} while actual = {privacy}'

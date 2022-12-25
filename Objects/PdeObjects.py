@@ -122,35 +122,45 @@ class PDEStateInfo(BlockChainInfoBaseClass):
         def __eq__(self, other):
             return self.get_token1_id() == other.get_token1_id() and \
                    self.get_token2_id() == other.get_token2_id() and \
-                   self.get_share_amount() == other.get_share_amount() and \
+                   self.amount() == other.amount() and \
                    self.get_payment_k() == other.get_payment_k()
-
-        def __init__(self, raw_data):
-            super(PDEStateInfo.PdeShare, self).__init__(raw_data)
-            raw_data = copy.copy(self.dict_data)
-            self.id, self.info = raw_data.popitem()
 
         def __str__(self):
             return f'{l6(self.get_token1_id())}-{l6(self.get_token2_id())}-' \
-                   f'{l6(self.get_payment_k())}-{self.get_share_amount()}'
+                   f'{l6(self.get_payment_k())}-{self.amount()}'
 
-        def get_share_id(self):
-            return self.id
+        @property
+        def _full_id(self):
+            return list(self.dict_data.keys())[0]
 
-        def get_share_amount(self):
-            return self.info
+        @property
+        def _full_id_split(self):
+            return self._full_id.split("-")
+
+        @property
+        def pool_id(self):
+            _list = self._full_id_split
+            return f"{_list[2]}-{_list[3]}"
+
+        @property
+        def payment_addr(self):
+            return self._full_id_split[-1]
+
+        @property
+        def amount(self):
+            return self.dict_data[self._full_id]
 
         def get_beacon_height(self):
-            return int(self.id.split('-')[1])
+            return int(self._full_id_split[1])
 
         def get_token1_id(self):
-            return self.id.split('-')[2]
+            return self._full_id_split[2]
 
         def get_token2_id(self):
-            return self.id.split('-')[3]
+            return self._full_id_split[3]
 
         def get_payment_k(self):
-            return self.id.split('-')[4]
+            return self._full_id_split[4]
 
     class PdeReward(BlockChainInfoBaseClass):
 
@@ -406,7 +416,7 @@ class PDEStateInfo(BlockChainInfoBaseClass):
         share_objects = self._get_pde_share_objects(user, token1, token2)
         list_amount = []
         for obj in share_objects:
-            list_amount.append(obj.get_share_amount())
+            list_amount.append(obj.amount())
 
         if user is not None:
             if len(list_amount) == 1:

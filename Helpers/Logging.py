@@ -9,10 +9,10 @@ try:
     os.mkdir(log_folder)
 except FileExistsError:
     pass
-
-LOGGING_CONFIG = {
+now = datetime.now().strftime("%y%m%d_%H%M%S")
+logging.config.dictConfig({
     'version': 1,
-    'disable_existing_loggers': False,
+    'disable_existing_loggers': True,
     'formatters': {
         'standard': {
             'format': '%(asctime)s %(levelname)-8s %(threadName)s:%(name)s:%(lineno)d %(message)s',
@@ -31,19 +31,20 @@ LOGGING_CONFIG = {
             'formatter': 'standard',
             'class': 'logging.StreamHandler',
             'stream': 'ext://sys.stdout', },
-        'file': {
+        'file_debug': {
             'class': 'logging.handlers.RotatingFileHandler',
             'level': 'DEBUG',
             'formatter': 'standard',
-            'filename': f'{log_folder}/run_{datetime.now().strftime("%y%m%d_%H%M%S")}.log',
-            'mode': 'w',
+            'filename': f'{log_folder}/run_{now}.log',
+            'mode': 'w+',
             'maxBytes': 10485760,
-            'backupCount': 50, }, },
+            'backupCount': 50, },
+    },
     'loggers': {
         '': {
-            'handlers': ['simple_console','file'],
+            'handlers': ['console', 'file_debug'],
             'level': 'DEBUG',
-            'propagate': True}, }}
+            'propagate': False}, }})
 
 _FMT_WIDTH = 100
 _FMT_CHR = '='
@@ -51,7 +52,6 @@ _STEP_LVL = 12
 
 
 def config_logger(logger_name):
-    logging.config.dictConfig(LOGGING_CONFIG)
     return logging.getLogger(logger_name)
 
 
@@ -62,12 +62,6 @@ class LoggerManager:
     def get_logger():
         logger_name = os.path.basename(inspect.stack()[2][1])
         return config_logger(logger_name)
-        # try:
-        #     logger = LoggerManager.LOGGERS[logger_name]
-        # except (KeyError, AttributeError):
-        #     logger = config_logger(logger_name)
-        #     LoggerManager.LOGGERS[logger_name] = logger
-        # return logger
 
 
 def DEBUG(msg):
