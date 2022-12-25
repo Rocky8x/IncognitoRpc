@@ -10,7 +10,7 @@ class ChainConfig:
     # ACCESS_TOKEN = '0c3d46946bbf99c8213dd7f6c640ed6433bdc056a5b68e7e80f5525311b0ca11'
     BLOCK_PER_EPOCH = 20
     RANDOM_TIME = 10  # the n(th) height in epoch to call random function, usually = BLOCK_PER_EPOCH/2 not BLOCK_TIME/2
-    BLOCK_TIME = 10
+    BLOCK_TIME = 20
     BLOCK_TIME_BASE = 10
     BASIC_REWARD_PER_BLOCK = int(4e8)
     DAO_REWARD_PERCENT = 0.1

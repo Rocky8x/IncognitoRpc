@@ -194,8 +194,8 @@ class TransactionRpc(BaseRpcApi):
                              "TokenID": token_id,
                              "Version": version,
                              "TxVersion": tx_ver  # only mater with privacy v2, backward compatible with privacy v1
-                         }
-                         ]). \
+            }
+            ]). \
             execute()
 
     def withdraw_reward_privacy_v2(self, private_key, payment_address, token_id="", tx_fee=-1, tx_ver=2, privacy=0):
@@ -206,8 +206,8 @@ class TransactionRpc(BaseRpcApi):
                              "PaymentAddress": payment_address,
                              "TokenID": token_id,
                              "TxVersion": tx_ver  # only mater with privacy v2, backward compatible with privacy v1
-                         }
-                         ]). \
+            }
+            ]). \
             execute()
 
     def de_fragment_prv(self, private_key, min_bill=1000000000000000, tx_fee=-1, privacy=1):
@@ -235,7 +235,7 @@ class TransactionRpc(BaseRpcApi):
                              "TokenAmount": defrag_amount,
                              "TokenReceivers": {},
                              "TokenFee": 0
-                         }, "", 1]).execute()
+            }, "", 1]).execute()
 
     def list_unspent_output_coins(self, private_key, token_id='', start_height=0):
         return self.rpc_connection. \
@@ -399,7 +399,8 @@ class TransactionRpc(BaseRpcApi):
         @return:
         """
         return self.rpc_connection.with_method('authorizedsubmitkey'). \
-            with_params([ota_key, access_token, block_height, re_index]).execute()
+            with_params(
+                [ota_key, access_token, block_height, re_index]).execute()
 
     def get_tx_by_receiver_v2(self, payment_k, read_only_k, token_id, from_index=0, to_index=500):
         return self.rpc_connection.with_method('gettransactionbyreceiverv2'). \
@@ -413,7 +414,8 @@ class TransactionRpc(BaseRpcApi):
                                   token_id, token_amount, remote_addr,
                                   prv_fee: dict = None, token_fee: dict = None, tx_fee=-1, tx_privacy=1):
         prv_tx = prv_fee if isinstance(prv_fee, dict) else {}
-        token_tx = {**{BURNING_ADDR: token_amount}, **token_fee} if token_fee else {BURNING_ADDR: token_amount}
+        token_tx = {**{BURNING_ADDR: token_amount}, **
+                    token_fee} if token_fee else {BURNING_ADDR: token_amount}
         return RPCResponseWithTxHash(self.rpc_connection.with_method("createandsendburningpbscfordeposittoscrequest").
                                      with_params([private_key, prv_tx, tx_fee, tx_privacy,
                                                   {"TokenID": token_id,
@@ -575,7 +577,8 @@ class TransactionDetail(RPCResponseWithTxHash):
         return self.get_result()['PrivacyCustomTokenFee']
 
     def is_in_mem_pool(self):
-        in_mem_pool = True if self.get_result()["IsInMempool"] == 'true' else False
+        in_mem_pool = True if self.get_result(
+        )["IsInMempool"] == 'true' else False
         return in_mem_pool
 
     def is_in_block(self):

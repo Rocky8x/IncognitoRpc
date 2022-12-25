@@ -7,6 +7,7 @@ import time
 from concurrent.futures.thread import ThreadPoolExecutor
 from typing import List, Union
 
+from APIs.NodeMonitor import NodeMonitorApi
 from Configs import Constants
 from Configs.Configs import ChainConfig, TestConfig
 from Configs.Constants import PRV_ID, coin, PBNB_ID, PBTC_ID, Status, DAO_PRIVATE_K, BURNING_ADDR
@@ -227,7 +228,8 @@ class Account:
         return resp.get_created_proof()
 
     def calculate_shard_id(self):
-        response = self.REQ_HANDLER.transaction().get_public_key_by_payment_key(self.payment_key)
+        response = self.REQ_HANDLER.transaction(
+        ).get_public_key_by_payment_key(self.payment_key)
         last_byte = response.get_result("PublicKeyInBytes")[-1]
         self.key_info['ShardID'] = last_byte % ChainConfig.ACTIVE_SHARD
         return self.shard
@@ -250,7 +252,8 @@ class Account:
         return f'{string}\n'
 
     def get_estimate_fee_and_size(self, receiver, amount, fee=-1, privacy=1):
-        r = self.REQ_HANDLER.transaction().estimate_tx_fee(self.private_key, receiver.payment_key, amount, fee, privacy)
+        r = self.REQ_HANDLER.transaction().estimate_tx_fee(
+            self.private_key, receiver.payment_key, amount, fee, privacy)
         estimate_fee_coin_perkb = int(r.get_result('EstimateFeeCoinPerKb'))
         estimate_txsize_inKb = int(r.get_result('EstimateTxSizeInKb'))
         return estimate_fee_coin_perkb, estimate_txsize_inKb
@@ -268,11 +271,13 @@ class Account:
         @param token_id:
         @return:
         """
-        response = self.REQ_HANDLER.transaction().list_output_coin(self.payment_key, token_id, OTASecretKey=self.ota_k)
+        response = self.REQ_HANDLER.transaction().list_output_coin(
+            self.payment_key, token_id, OTASecretKey=self.ota_k)
         return TXOResponse(response)
 
     def list_utxo(self, token_id=PRV_ID, from_height=0):
-        raw_response = self.REQ_HANDLER.transaction().list_unspent_output_coins(self.private_key, token_id, from_height)
+        raw_response = self.REQ_HANDLER.transaction().list_unspent_output_coins(
+            self.private_key, token_id, from_height)
         return TXOResponse(raw_response)
 
     def print_utxo(self, token_id=None):
@@ -370,7 +375,8 @@ class Account:
     def stk_un_stake_tx(self, validator=None, tx_fee=50):
         if not validator:
             validator = self
-        logger.info(f'Un-stake transaction for validator: {validator.validator_key}')
+        logger.info(
+            f'Un-stake transaction for validator: {validator.validator_key}')
         return self.REQ_HANDLER.transaction(). \
             create_and_send_un_staking_transaction(self.private_key, validator.payment_key, validator.validator_key,
                                                    tx_fee)
@@ -380,7 +386,8 @@ class Account:
         return self.stk_stop_auto_staking(him, him)
 
     def stk_wait_till_i_am_committee(self, timeout=ChainConfig.STK_WAIT_TIME_OUT):
-        logger.info(f"Wait until {self.validator_key} become a committee, timeout: {timeout}s")
+        logger.info(
+            f"Wait until {self.validator_key} become a committee, timeout: {timeout}s")
         time_start = datetime.datetime.now()
         time_spent = 0
         beacon_bsd = self.REQ_HANDLER.get_beacon_best_state_detail_info()
@@ -396,7 +403,8 @@ class Account:
             logger.info(f"Already a committee at epoch {e2}, block height {h}")
             return e2
         else:
-            logger.info(f"Waited {time_spent}s but still not yet become committee")
+            logger.info(
+                f"Waited {time_spent}s but still not yet become committee")
             return None
 
     def stk_wait_till_i_am_in_waiting_next_random(self, check_cycle=ChainConfig.BLOCK_TIME,
@@ -414,14 +422,17 @@ class Account:
         if beacon_bsd.is_he_in_waiting_next_random(self) is not False:
             e2 = beacon_bsd.get_epoch()
             h = beacon_bsd.get_beacon_height()
-            logger.info(f"Already exists in waiting next random at epoch {e2}, block height {h}")
+            logger.info(
+                f"Already exists in waiting next random at epoch {e2}, block height {h}")
             return e2, h
         else:
-            logger.info(f"Waited {t}s but still not yet exist in waiting next random")
+            logger.info(
+                f"Waited {t}s but still not yet exist in waiting next random")
             return None
 
     def stk_wait_till_i_am_in_shard_pending(self, timeout=ChainConfig.STK_WAIT_TIME_OUT, sfv3=True):
-        logger.info(f"Wait until {self.validator_key} exist in shard pending, timeout: {timeout}s")
+        logger.info(
+            f"Wait until {self.validator_key} exist in shard pending, timeout: {timeout}s")
         time_start = datetime.datetime.now()
         time_spent = 0
         block_per_epoch = ChainConfig.BLOCK_PER_EPOCH
@@ -435,12 +446,14 @@ class Account:
                 index_height = h % block_per_epoch
                 if index_height <= ChainConfig.RANDOM_TIME:
                     num_of_block_wait = ChainConfig.RANDOM_TIME - index_height
-                    time_to_wait = ChainConfig.get_epoch_n_block_time(0, num_of_block_wait)
+                    time_to_wait = ChainConfig.get_epoch_n_block_time(
+                        0, num_of_block_wait)
                     logger.info(f'Current height = {h} @ epoch = {e2}. '
                                 f'Wait {time_to_wait}s until epoch {e2} and B height {h + num_of_block_wait}')
                     WAIT(time_to_wait)
                 else:
-                    self.REQ_HANDLER.wait_till_next_epoch(1, block_of_epoch=ChainConfig.RANDOM_TIME + 1)
+                    self.REQ_HANDLER.wait_till_next_epoch(
+                        1, block_of_epoch=ChainConfig.RANDOM_TIME + 1)
             beacon_bsd = self.REQ_HANDLER.get_beacon_best_state_detail_info()
             time_spent = (datetime.datetime.now() - time_start).seconds
             if timeout <= time_spent:
@@ -449,14 +462,17 @@ class Account:
             e2 = beacon_bsd.get_epoch()
             h = beacon_bsd.get_beacon_height()
             staked_shard = beacon_bsd.is_he_in_shard_pending(self)
-            logger.info(f"Already exists in shard pending at epoch {e2}, block height {h}")
+            logger.info(
+                f"Already exists in shard pending at epoch {e2}, block height {h}")
             return staked_shard
         else:
-            logger.info(f"Waited {time_spent}s but still not yet exist in shard pending")
+            logger.info(
+                f"Waited {time_spent}s but still not yet exist in shard pending")
             return None
 
     def stk_wait_till_i_am_in_sync_pool(self, timeout=ChainConfig.STK_WAIT_TIME_OUT):
-        logger.info(f"Wait until {self.validator_key} exist in sync pool, timeout: {timeout}s")
+        logger.info(
+            f"Wait until {self.validator_key} exist in sync pool, timeout: {timeout}s")
         time_start = datetime.datetime.now()
         time_spent = 0
         block_per_epoch = ChainConfig.BLOCK_PER_EPOCH
@@ -467,12 +483,14 @@ class Account:
             index_height = h % block_per_epoch
             if index_height <= ChainConfig.RANDOM_TIME:
                 num_of_block_wait = ChainConfig.RANDOM_TIME - index_height
-                time_to_wait = ChainConfig.get_epoch_n_block_time(0, num_of_block_wait)
+                time_to_wait = ChainConfig.get_epoch_n_block_time(
+                    0, num_of_block_wait)
                 logger.info(f'Current height = {h} @ epoch = {e2}. '
                             f'Wait {time_to_wait}s until epoch {e2} and B height {h + num_of_block_wait}')
                 WAIT(time_to_wait)
             else:
-                self.REQ_HANDLER.wait_till_next_epoch(1, block_of_epoch=ChainConfig.RANDOM_TIME + 1)
+                self.REQ_HANDLER.wait_till_next_epoch(
+                    1, block_of_epoch=ChainConfig.RANDOM_TIME + 1)
             beacon_bsd = self.REQ_HANDLER.get_beacon_best_state_detail_info()
             time_spent = (datetime.datetime.now() - time_start).seconds
             if timeout <= time_spent:
@@ -481,14 +499,17 @@ class Account:
             e2 = beacon_bsd.get_epoch()
             h = beacon_bsd.get_beacon_height()
             staked_shard = beacon_bsd.is_he_in_sync_pool(self)
-            logger.info(f"Already exists in shard sync_pool at epoch {e2}, block height {h}")
+            logger.info(
+                f"Already exists in shard sync_pool at epoch {e2}, block height {h}")
             return staked_shard
         else:
-            logger.info(f"Waited {time_spent}s but still not yet exist in sync pool")
+            logger.info(
+                f"Waited {time_spent}s but still not yet exist in sync pool")
             return None
 
     def stk_wait_till_i_am_out_of_autostaking_list(self, timeout=ChainConfig.STK_WAIT_TIME_OUT):
-        logger.info(f"Wait until {self.validator_key} does not exist in the autostaking list, timeout: {timeout}s")
+        logger.info(
+            f"Wait until {self.validator_key} does not exist in the autostaking list, timeout: {timeout}s")
         time_start = datetime.datetime.now()
         time_spent = 0
         beacon_bsd = self.REQ_HANDLER.get_beacon_best_state_detail_info()
@@ -501,18 +522,22 @@ class Account:
         if beacon_bsd.get_auto_staking_committees(self) is None:
             e2 = beacon_bsd.get_epoch()
             h = beacon_bsd.get_beacon_height()
-            logger.info(f"Validator is out of autostaking list at epoch {e2}, block height {h}")
+            logger.info(
+                f"Validator is out of autostaking list at epoch {e2}, block height {h}")
             return e2
         else:
-            logger.info(f"Waited {time_spent}s but still exist in the autostaking list")
+            logger.info(
+                f"Waited {time_spent}s but still exist in the autostaking list")
             return None
 
     def stk_wait_till_i_am_swapped_out_of_committee(self, timeout=ChainConfig.STK_WAIT_TIME_OUT):
-        logger.info(f"Wait until {self.validator_key} no longer a committee, timeout: {timeout}s")
+        logger.info(
+            f"Wait until {self.validator_key} no longer a committee, timeout: {timeout}s")
         time_start = datetime.datetime.now()
         time_spent = 0
         beacon_bsd = self.REQ_HANDLER.get_beacon_best_state_detail_info()
-        while beacon_bsd.is_he_a_committee(self) is not False:  # is_he_a_committee returns False or shard number
+        # is_he_a_committee returns False or shard number
+        while beacon_bsd.is_he_a_committee(self) is not False:
             # (number which is not False) so must use this comparison to cover the case shard =0
             self.REQ_HANDLER.wait_till_next_epoch(1, block_of_epoch=5)
             time_spent = (datetime.datetime.now() - time_start).seconds
@@ -551,24 +576,29 @@ class Account:
         from_cache = kwargs.get('cache', False)
         if from_cache:
             bal = self.cache[Account._cache_bal].get(token_id, 0)
-            logger.info(f"{self.__me()}, token id = {l6(token_id)}, bal from cache = {coin(bal, False)} ")
+            logger.info(
+                f"{self.__me()}, token id = {l6(token_id)}, bal from cache = {coin(bal, False)} ")
             return bal
-        result = self.REQ_HANDLER.transaction().get_custom_token_balance(self.private_key, token_id)
+        result = self.REQ_HANDLER.transaction().get_custom_token_balance(
+            self.private_key, token_id)
         while True:
             try:
                 error_msg = result.get_error_trace().get_message()
                 if re.search(re.compile(r'{(.*)} not synced'), error_msg):
                     self.submit_key()
-                    logger.warning(f'{error_msg}. Wait for {ChainConfig.BLOCK_TIME}s and retry')
+                    logger.warning(
+                        f'{error_msg}. Wait for {ChainConfig.BLOCK_TIME}s and retry')
                     WAIT(ChainConfig.BLOCK_TIME)
-                    result = self.REQ_HANDLER.transaction().get_custom_token_balance(self.private_key, token_id)
+                    result = self.REQ_HANDLER.transaction().get_custom_token_balance(
+                        self.private_key, token_id)
                 else:
                     break
             except Exception:
                 break
         balance = result.get_result() if result.get_result() else 0
         self.cache[Account._cache_bal][token_id] = balance
-        logger.info(f"{self.__me()}, token id = {l6(token_id)}, bal = {coin(balance, False)} ")
+        logger.info(
+            f"{self.__me()}, token id = {l6(token_id)}, bal = {coin(balance, False)} ")
         return balance
 
     def get_assets(self, tokens=None):
@@ -599,7 +629,8 @@ class Account:
         @return:
         """
         cli = NeighborChainCli.new(token_id)
-        receiver_remote_addr = receiver.get_remote_addr(token_id) if type(receiver) is Account else receiver
+        receiver_remote_addr = receiver.get_remote_addr(
+            token_id) if type(receiver) is Account else receiver
         return cli.send_to(self.get_remote_addr(token_id), receiver_remote_addr, amount, password,
                            memo)
 
@@ -618,7 +649,8 @@ class Account:
         @return: Response object
         """
         response = self.REQ_HANDLER.transaction(). \
-            send_transaction(self.private_key, {receiver_account.payment_key: amount}, fee, privacy)
+            send_transaction(self.private_key, {
+                             receiver_account.payment_key: amount}, fee, privacy)
         log_msg = f'From: {self.__me()}. Sent {amount} prv to: {receiver_account.__to_me()}'
         try:
             log_msg += f', tx {response.get_tx_id()}'
@@ -642,11 +674,14 @@ class Account:
         @return:
         """
         send_param = dict()
-        logger.info(f"{self.__me()} sending prv to multiple accounts: --------------------------------------------- ")
+        logger.info(
+            f"{self.__me()} sending prv to multiple accounts: --------------------------------------------- ")
         for acc, amount in dict_to_account_and_amount.items():
-            logger.info(f'{amount} prv to shardshard {acc.shard} | {acc.__me()} | {acc.__to_me()}')
+            logger.info(
+                f'{amount} prv to shardshard {acc.shard} | {acc.__me()} | {acc.__to_me()}')
             send_param[acc.payment_key] = amount
-        logger.info("---------------------------------------------------------------------------------- ")
+        logger.info(
+            "---------------------------------------------------------------------------------- ")
 
         return self.REQ_HANDLER.transaction(). \
             send_transaction(self.private_key, send_param, fee, privacy)
@@ -670,8 +705,10 @@ class Account:
         if consolidate_tx is not None:
             consolidate_tx.get_transaction_by_hash()
         balance = self.get_balance()
-        fee, size = self.get_estimate_fee_and_size(to_account, balance - ChainConfig.FEE_MIN, privacy=privacy)
-        logger.info(f'''EstimateFeeCoinPerKb = {fee}, EstimateTxSizeInKb = {size}''')
+        fee, size = self.get_estimate_fee_and_size(
+            to_account, balance - ChainConfig.FEE_MIN, privacy=privacy)
+        logger.info(
+            f'''EstimateFeeCoinPerKb = {fee}, EstimateTxSizeInKb = {size}''')
         if balance > 0:
             return self.send_prv_to(to_account, balance - ChainConfig.FEE_MIN, int(ChainConfig.FEE_MIN / (size + 1)),
                                     privacy).get_transaction_by_hash()
@@ -705,7 +742,8 @@ class Account:
     def consolidate_utxo(self, token_id=PRV_ID):
         count_utxo = self.count_unspent_output_coins(token_id)
         if count_utxo <= 5:
-            logger.info(f"UTXO of {token_id} is less than 6, no need for consolidation")
+            logger.info(
+                f"UTXO of {token_id} is less than 6, no need for consolidation")
             return
         prv_bal = self.get_balance()
         fee = prv_bal - ChainConfig.FEE_MIN
@@ -736,8 +774,10 @@ class Account:
         @param amount
         @return:
         """
-        receiver = self.payment_key if receiver is None else KeyExtractor.incognito_addr(receiver)
-        token_symbol = TestHelper.make_random_word(15, 20) if not token_symbol else token_symbol
+        receiver = self.payment_key if receiver is None else KeyExtractor.incognito_addr(
+            receiver)
+        token_symbol = TestHelper.make_random_word(
+            15, 20) if not token_symbol else token_symbol
         logger.info(f'Init custom token to self: {self.payment_key}')
 
         return self.REQ_HANDLER.transaction().init_custom_token(self.private_key, receiver, token_symbol, amount)
@@ -763,43 +803,52 @@ class Account:
         token1, token2 = list(pair_dict.keys())
         amount1, amount2 = list(pair_dict.values())
         pair_id = f'pde_{l6(token1)}_{l6(token2)}_{get_current_date_time()}'
-        tx1 = self.pde_contribute(token1, amount1, pair_id).expect_no_error().get_transaction_by_hash()
-        tx2 = self.pde_contribute(token2, amount2, pair_id).expect_no_error().get_transaction_by_hash()
+        tx1 = self.pde_contribute(
+            token1, amount1, pair_id).expect_no_error().get_transaction_by_hash()
+        tx2 = self.pde_contribute(
+            token2, amount2, pair_id).expect_no_error().get_transaction_by_hash()
         return tx1, tx2
 
     def pde_contribute(self, token_id, amount, pair_id):
         if token_id == PRV_ID:
-            logger.info(f'{self.__me()} Contribute PRV, amount: {amount}, pair id = {pair_id}')
+            logger.info(
+                f'{self.__me()} Contribute PRV, amount: {amount}, pair id = {pair_id}')
             return self.REQ_HANDLER.dex().contribute_prv(self.private_key, self.payment_key, amount,
                                                          pair_id, TestConfig.TX_VER)
         else:
-            logger.info(f'{self.__me()} Contribute token: {l6(token_id)}, amount = {amount}, pair id = {pair_id}')
+            logger.info(
+                f'{self.__me()} Contribute token: {l6(token_id)}, amount = {amount}, pair id = {pair_id}')
             return self.REQ_HANDLER.dex().contribute_token(self.private_key, self.payment_key, token_id,
                                                            amount, pair_id, TestConfig.TX_VER)
 
     def pde_contribute_v2(self, token_id, amount, pair_id):
         if token_id == PRV_ID:
-            logger.info(f'{self.__me()} Contribute PRV V2, amount: {amount}, pair id = {pair_id}')
+            logger.info(
+                f'{self.__me()} Contribute PRV V2, amount: {amount}, pair id = {pair_id}')
 
             return self.REQ_HANDLER.dex().contribute_prv_v2(self.private_key, self.payment_key, amount,
                                                             pair_id, TestConfig.TX_VER)
         else:
-            logger.info(f'{self.__me()} Contribute token V2: {l6(token_id)}, amount = {amount}, pair id = {pair_id}')
+            logger.info(
+                f'{self.__me()} Contribute token V2: {l6(token_id)}, amount = {amount}, pair id = {pair_id}')
             return self.REQ_HANDLER.dex().contribute_token_v2(self.private_key, self.payment_key, token_id,
                                                               amount, pair_id, TestConfig.TX_VER)
 
     def pde_withdraw_contribution(self, token_id_1, token_id_2, amount):
-        logger.info(f'Withdraw PDE contribution {l6(token_id_1)}-{l6(token_id_2)}, amount = {amount}')
+        logger.info(
+            f'Withdraw PDE contribution {l6(token_id_1)}-{l6(token_id_2)}, amount = {amount}')
         return self.REQ_HANDLER.dex().withdrawal_contribution(self.private_key, self.payment_key,
                                                               token_id_1, token_id_2, amount, TestConfig.TX_VER)
 
     def pde_withdraw_contribution_v2(self, token_id_1, token_id_2, amount):
-        logger.info(f'Withdraw PDE contribution v2 {l6(token_id_1)}-{l6(token_id_2)}, amount = {amount}')
+        logger.info(
+            f'Withdraw PDE contribution v2 {l6(token_id_1)}-{l6(token_id_2)}, amount = {amount}')
         return self.REQ_HANDLER.dex().withdrawal_contribution_v2(self.private_key, self.payment_key, token_id_1,
                                                                  token_id_2, amount)
 
     def pde_withdraw_reward_v2(self, token_id_1, token_id_2, amount):
-        logger.info(f'Withdraw PDE reward v2 {l6(token_id_1)}-{l6(token_id_2)}, amount = {amount}')
+        logger.info(
+            f'Withdraw PDE reward v2 {l6(token_id_1)}-{l6(token_id_2)}, amount = {amount}')
         return self.REQ_HANDLER.dex().withdraw_reward_v2(self.private_key, self.payment_key, token_id_1,
                                                          token_id_2, amount, TestConfig.TX_VER)
 
@@ -811,8 +860,10 @@ class Account:
         token1, token2 = list(pair_dict.keys())
         amount1, amount2 = list(pair_dict.values())
         pair_id = f'pde_{l6(token1)}_{l6(token2)}_{get_current_date_time()}'
-        tx1 = self.pde_contribute_v2(token1, amount1, pair_id).expect_no_error().get_transaction_by_hash()
-        tx2 = self.pde_contribute_v2(token2, amount2, pair_id).expect_no_error().get_transaction_by_hash()
+        tx1 = self.pde_contribute_v2(
+            token1, amount1, pair_id).expect_no_error().get_transaction_by_hash()
+        tx2 = self.pde_contribute_v2(
+            token2, amount2, pair_id).expect_no_error().get_transaction_by_hash()
         return tx1, tx2
 
     def send_token_to(self, receiver, token_id, amount_custom_token,
@@ -830,7 +881,8 @@ class Account:
         @param token_privacy:
         @return: Response object
         """
-        logger.info(f'Sending {amount_custom_token} token {l6(token_id)} to {l6(receiver.payment_key)}')
+        logger.info(
+            f'Sending {amount_custom_token} token {l6(token_id)} to {l6(receiver.payment_key)}')
 
         return self.REQ_HANDLER.transaction(). \
             send_custom_token_transaction(self.private_key, receiver.payment_key, token_id, amount_custom_token,
@@ -878,8 +930,10 @@ class Account:
             initialize a new centralize token
             @return: Response Object
         """
-        receiver = receiver.payment_key if isinstance(receiver, Account) else receiver
-        logger.info(f'{self.__me()} issue {amount} of {token_id[-6:]} to {receiver[-6:]}')
+        receiver = receiver.payment_key if isinstance(
+            receiver, Account) else receiver
+        logger.info(
+            f'{self.__me()} issue {amount} of {token_id[-6:]} to {receiver[-6:]}')
         return self.REQ_HANDLER.bridge().issue_centralized_bridge_token(self.private_key, receiver, token_id,
                                                                         token_name, amount)
 
@@ -914,26 +968,31 @@ class Account:
         @param token_id: token id to get reward, set as '*' to get all token reward in a dictionary
         @return: reward amount of token
         """
-        result = self.REQ_HANDLER.transaction().get_reward_amount(self.payment_key).get_result()
+        result = self.REQ_HANDLER.transaction().get_reward_amount(
+            self.payment_key).get_result()
         result[PRV_ID] = result.pop('PRV')
         if token_id == '*':
             return result
         else:
             reward = result.get(token_id, 0)
-        logger.info(f"{self.__to_me()}, {token_id[-6:]} reward = {coin(reward, False)}")
+        logger.info(
+            f"{self.__to_me()}, {token_id[-6:]} reward = {coin(reward, False)}")
         return reward
 
     def stk_withdraw_reward_to(self, reward_receiver, token_id=PRV_ID, tx_fee=0, tx_version=TestConfig.TX_VER,
                                privacy=0):
-        logger.info(f"Withdraw token reward {token_id} to {l6(reward_receiver.payment_key)}")
+        logger.info(
+            f"Withdraw token reward {token_id} to {l6(reward_receiver.payment_key)}")
         if ChainConfig.PRIVACY_VERSION == 1:
             return self.REQ_HANDLER.transaction(). \
-                withdraw_reward(self.private_key, reward_receiver.payment_key, token_id, tx_fee, tx_version, privacy)
+                withdraw_reward(self.private_key, reward_receiver.payment_key,
+                                token_id, tx_fee, tx_version, privacy)
         if ChainConfig.PRIVACY_VERSION == 2:
             return self.REQ_HANDLER.transaction(). \
                 withdraw_reward_privacy_v2(self.private_key, reward_receiver.payment_key, token_id, -1, tx_version,
                                            privacy)
-        raise RuntimeError('Can not detect privacy version to use the correct withdraw rpc')
+        raise RuntimeError(
+            'Can not detect privacy version to use the correct withdraw rpc')
 
     def stk_withdraw_reward_to_me(self, token_id=PRV_ID, tx_fee=0, tx_version=TestConfig.TX_VER, privacy=0):
         return self.stk_withdraw_reward_to(self, token_id, tx_fee, tx_version, privacy)
@@ -942,43 +1001,51 @@ class Account:
     # DEX
     #######
     def pde_clean_all_waiting_contribution(self, pde_state=None):
-        pde_state = self.REQ_HANDLER.get_latest_pde_state_info() if pde_state is None else pde_state
+        pde_state = self.REQ_HANDLER.get_latest_pde_state_info(
+        ) if pde_state is None else pde_state
         waiting_contributions = pde_state.get_waiting_contributions()
         for contribution in waiting_contributions:
             if contribution.get_contributor_address() == self.payment_key and contribution.get_token_id() != PRV_ID:
-                logger.info(f"{contribution} belong to current user and waiting for PRV, so cannot use PRV to clean up")
+                logger.info(
+                    f"{contribution} belong to current user and waiting for PRV, so cannot use PRV to clean up")
             else:
                 self.pde_contribute_v2(PRV_ID, 10, contribution.get_pair_id()).attach_to_node(self.REQ_HANDLER) \
                     .get_transaction_by_hash()
 
     def pde_wait_till_my_token_in_waiting_for_contribution(self, pair_id, token_id, timeout=100):
-        logger.info(f"Wait until token {l6(token_id)} is in waiting for contribution")
+        logger.info(
+            f"Wait until token {l6(token_id)} is in waiting for contribution")
         my_waiting = self.REQ_HANDLER.get_latest_pde_state_info(). \
             find_waiting_contribution_of_user(self, pair_id, token_id)
         while timeout >= 0:
             if my_waiting:  # not empty
-                logger.info(f'Token {l6(token_id)} is found in contribution waiting list')
+                logger.info(
+                    f'Token {l6(token_id)} is found in contribution waiting list')
                 return True
             timeout -= 10
             WAIT(10)
             my_waiting = self.REQ_HANDLER.get_latest_pde_state_info(). \
                 find_waiting_contribution_of_user(self, pair_id, token_id)
-        logger.info(f'Token {l6(token_id)} is NOT found in contribution waiting list')
+        logger.info(
+            f'Token {l6(token_id)} is NOT found in contribution waiting list')
         return False
 
     def pde_wait_till_my_token_out_waiting_for_contribution(self, pair_id, token_id, timeout=100):
-        logger.info(f"Wait until token {l6(token_id)} is OUT of waiting for contribution")
+        logger.info(
+            f"Wait until token {l6(token_id)} is OUT of waiting for contribution")
         my_waiting = self.REQ_HANDLER.get_latest_pde_state_info(). \
             find_waiting_contribution_of_user(self, pair_id, token_id)
         while timeout >= 0:
             if not my_waiting:
-                logger.info(f'Token {l6(token_id)} is NOT found in contribution waiting list')
+                logger.info(
+                    f'Token {l6(token_id)} is NOT found in contribution waiting list')
                 return True
             timeout -= 10
             WAIT(10)
             my_waiting = self.REQ_HANDLER.get_latest_pde_state_info(). \
                 find_waiting_contribution_of_user(self, pair_id, token_id)
-        logger.info(f'Token {l6(token_id)} is found in contribution waiting list')
+        logger.info(
+            f'Token {l6(token_id)} is found in contribution waiting list')
         return False
 
     def pde_trade_token(self, token_id_to_sell, sell_amount, token_id_to_buy, min_amount_to_buy, trading_fee=0):
@@ -1040,23 +1107,28 @@ class Account:
         elif isinstance(pool_pair, str):
             pair_id = pool_pair
         else:
-            raise RuntimeError(f"pool_pair param is {type(pool_pair)} ,not PdeV3State.PoolPairData or string")
+            raise RuntimeError(
+                f"pool_pair param is {type(pool_pair)} ,not PdeV3State.PoolPairData or string")
         if isinstance(order, PdeV3State.PoolPairData.Order):
             order_id = order.get_id()
             order.get_nft_id()
         elif isinstance(order, str):
             order_id = order
         else:
-            raise RuntimeError(f"order param is {type(order)} ,not PdeV3State.PoolPairData.Order or string")
-        token_id_list = token_id_list if isinstance(token_id_list, list) else [token_id_list]
-        logger.info(f"{self.__me()} nft: {nft_id[-6:]} Withdrawing {amount} from order {order_id}")
+            raise RuntimeError(
+                f"order param is {type(order)} ,not PdeV3State.PoolPairData.Order or string")
+        token_id_list = token_id_list if isinstance(
+            token_id_list, list) else [token_id_list]
+        logger.info(
+            f"{self.__me()} nft: {nft_id[-6:]} Withdrawing {amount} from order {order_id}")
         return self.REQ_HANDLER.dex_v3().withdraw_order(self.private_key, pair_id, order_id, nft_id,
                                                         token_id_list, int(amount), tx_fee=tx_fee,
                                                         tx_privacy=tx_privacy)
 
     def pde3_trade(self, token_sell, token_buy, sell_amount, min_acceptable, trade_path, trading_fee,
                    use_prv_fee=True, tx_fee=-1, tx_privacy=1):
-        trade_path = [trade_path] if isinstance(trade_path, str) else trade_path
+        trade_path = [trade_path] if isinstance(
+            trade_path, str) else trade_path
         logger.info(
             f"PDE3 - {self.private_key[-6:]} request trading {sell_amount} of {token_sell[-6:]} for {token_buy[-6:]}, "
             f"PRV trading fee {use_prv_fee}, amount {trading_fee} via \n   {trade_path}")
@@ -1128,8 +1200,10 @@ class Account:
         if not isinstance(pool, PdeV3State.PoolPairData) and isinstance(pool, str):
             pool = self.REQ_HANDLER.pde3_get_state().get_pool_pair(id=pool)
         else:
-            raise RuntimeError(f"Pool must be a string or PdeV3State.PoolPairData, got {type(pool)} instead")
-        share_amount = pool.get_share(nft_id).amount if share_amount is None else share_amount
+            raise RuntimeError(
+                f"Pool must be a string or PdeV3State.PoolPairData, got {type(pool)} instead")
+        share_amount = pool.get_share(
+            nft_id).amount if share_amount is None else share_amount
         logger.info(f"PDE3 Withdraw liquidity, private k: {self.private_key[-6:]}, NFT ID {nft_id}\n   "
                     f"pair: {pool.get_pool_pair_id()}\n   "
                     f"share amount available | withdraw: {pool.get_share(nft_id).amount} | {share_amount}")
@@ -1145,7 +1219,8 @@ class Account:
                             f"return the first one now and will not mint more: \n {self.nft_ids}")
                 return self.nft_ids[0]
         logger.info(f"{self.__me()} request minting new PDEX NFT ID")
-        response = self.REQ_HANDLER.dex_v3().mint_nft(self.private_key, amount, tx_fee=tx_fee, tx_privacy=tx_privacy)
+        response = self.REQ_HANDLER.dex_v3().mint_nft(
+            self.private_key, amount, tx_fee=tx_fee, tx_privacy=tx_privacy)
         try:
             response.get_transaction_by_hash()
         except AssertionError:
@@ -1170,7 +1245,8 @@ class Account:
             if wasted_time > ChainConfig.BLOCK_TIME * 5:
                 break
         if not nft_id:
-            logger.info(f"{self.__me()} waited {wasted_time}s, but can't get new nft id after tx was confirmed")
+            logger.info(
+                f"{self.__me()} waited {wasted_time}s, but can't get new nft id after tx was confirmed")
             return None
 
     def pde3_get_my_nft_ids(self, pde_state=None):
@@ -1187,7 +1263,8 @@ class Account:
         for token in all_my_custom_token:
             if pde_state.get_nft_id(token.get_token_id()):
                 self.save_nft_id(token.get_token_id())
-        logger.info(f"Get {self.private_key[-6:]} NFT id from pde state.\n   found: {self.nft_ids}")
+        logger.info(
+            f"Get {self.private_key[-6:]} NFT id from pde state.\n   found: {self.nft_ids}")
         return self.nft_ids
 
     def pde3_clean_all_waiting_contribution(self, pde_state=None):
@@ -1200,7 +1277,7 @@ class Account:
             self.pde3_add_liquidity(PRV_ID, 100, contribution.get_amplifier(), contribution.get_contribution_id(),
                                     nft, contribution.get_pool_pair_id()).get_transaction_by_hash()
 
-    def pde3_clean_my_waiting_contribution(self,pde_state=None):
+    def pde3_clean_my_waiting_contribution(self, pde_state=None):
         pde_state = self.REQ_HANDLER.pde3_get_state() if pde_state is None else pde_state
         contribution_to_clean = []
         for contribution in pde_state.get_waiting_contribution():
@@ -1216,7 +1293,8 @@ class Account:
                                     not_my_nft, contribution.get_pool_pair_id()).get_transaction_by_hash()
 
     def pde3_modify_param(self, new_config: Union[dict, PdeV3State.Param], tx_fee=10, tx_privacy=0):
-        new_config = new_config.get_configs() if isinstance(new_config, PdeV3State.Param) else new_config
+        new_config = new_config.get_configs() if isinstance(
+            new_config, PdeV3State.Param) else new_config
         return self.REQ_HANDLER.dex_v3().modify_param(self.private_key, new_config, tx_fee=tx_fee,
                                                       tx_privacy=tx_privacy)
 
@@ -1249,19 +1327,23 @@ class Account:
             change_amount = bal_new - from_balance
             if least_change_amount is None:  # just change, does not mater + or -
                 if bal_new != from_balance:
-                    logger.info(f'Balance token {l6(token_id)} of {self.__me()} changes: {change_amount}')
+                    logger.info(
+                        f'Balance token {l6(token_id)} of {self.__me()} changes: {change_amount}')
                     return bal_new
             elif least_change_amount >= 0:  # case balance increase
                 if bal_new >= from_balance + least_change_amount:
-                    logger.info(f'Balance token {l6(token_id)} of {self.__me()} changes: {change_amount}')
+                    logger.info(
+                        f'Balance token {l6(token_id)} of {self.__me()} changes: {change_amount}')
                     return bal_new
             else:  # case balance decrease
                 if bal_new <= from_balance + least_change_amount:
-                    logger.info(f'Balance token {l6(token_id)} of {self.__me()} changes: {change_amount}')
+                    logger.info(
+                        f'Balance token {l6(token_id)} of {self.__me()} changes: {change_amount}')
                     return bal_new
             WAIT(check_interval)
             timeout -= check_interval
-        logger.info(f'Balance token {l6(token_id)} of {self.__me()} not change a bit')
+        logger.info(
+            f'Balance token {l6(token_id)} of {self.__me()} not change a bit')
         return bal_new
 
     #######
@@ -1273,11 +1355,13 @@ class Account:
         for key, value in rate_dict.items():  # convert dict value to string
             rate_dict[key] = str(value)
         return self.REQ_HANDLER.portal(). \
-            create_n_send_portal_exchange_rates(self.private_key, self.payment_key, rate_dict)
+            create_n_send_portal_exchange_rates(
+                self.private_key, self.payment_key, rate_dict)
 
     def portal_create_porting_request(self, token_id, amount, porting_fee=None, register_id=None):
         logger.info()
-        logger.info(f'Portal | User {self.__to_me()} | create porting req | amount {coin(amount, False)}')
+        logger.info(
+            f'Portal | User {self.__to_me()} | create porting req | amount {coin(amount, False)}')
         if porting_fee is None:
             beacon_height = self.REQ_HANDLER.help_get_beacon_height()
             porting_fee = self.REQ_HANDLER.portal().get_porting_req_fees(
@@ -1296,7 +1380,8 @@ class Account:
         logger.info()
         logger.info(f'Portal | Custodian {self.__to_me()} | '
                     f'Add collateral to become custodian: {coin(collateral, False)}')
-        remote_addr = self.get_remote_addr(ptoken) if remote_addr is None else remote_addr
+        remote_addr = self.get_remote_addr(
+            ptoken) if remote_addr is None else remote_addr
         return self.REQ_HANDLER.portal().create_n_send_tx_with_custodian_deposit(
             self.private_key, self.payment_key, collateral, {ptoken: remote_addr})
 
@@ -1304,7 +1389,8 @@ class Account:
         """
         just an alias of add_collateral
         """
-        remote_addr = self.get_remote_addr(ptoken) if remote_addr is None else remote_addr
+        remote_addr = self.get_remote_addr(
+            ptoken) if remote_addr is None else remote_addr
         return self.portal_add_collateral(collateral, ptoken, remote_addr)
 
     def portal_let_me_take_care_this_redeem(self, redeem_id, do_assert=True):
@@ -1338,7 +1424,8 @@ class Account:
                                              token_id, redeem_amount, redeem_fee, redeem_id, privacy)
 
     def portal_withdraw_my_collateral(self, amount):
-        logger.info(f'Portal | Custodian {self.__to_me()} | Withdraw collateral: {amount}')
+        logger.info(
+            f'Portal | Custodian {self.__to_me()} | Withdraw collateral: {amount}')
         return self.REQ_HANDLER.portal().create_n_send_custodian_withdraw_req(self.private_key,
                                                                               self.payment_key,
                                                                               amount)
@@ -1392,7 +1479,8 @@ class Account:
         return psi.get_custodian_info_in_pool(self)
 
     def portal_wait_my_lock_collateral_to_change(self, token_id, from_amount=None, check_interval=30, timeout=180):
-        logger.info(f'Wait for my lock collateral change, {self.__to_me()}, token {l6(token_id)}')
+        logger.info(
+            f'Wait for my lock collateral change, {self.__to_me()}, token {l6(token_id)}')
         my_custodian_stat = self.portal_get_my_custodian_info()
         if my_custodian_stat is None:
             logger.info("You're not even a custodian")
@@ -1405,7 +1493,8 @@ class Account:
         wasted_time = 0
         while current_collateral == collateral_before:
             if wasted_time >= timeout:
-                logger.info(f'Lock collateral does not change in the last {wasted_time}s')
+                logger.info(
+                    f'Lock collateral does not change in the last {wasted_time}s')
                 return 0
             WAIT(check_interval)
             wasted_time += check_interval
@@ -1419,27 +1508,33 @@ class Account:
         if portal_state_info is None:
             portal_state_info = self.REQ_HANDLER.get_latest_portal_state_info()
 
-        sum_amount = portal_state_info.sum_collateral_porting_waiting(token_id, self)
-        logger.info(f'{self.__to_me()} sum all waiting porting req collateral of token {l6(token_id)}: {sum_amount}')
+        sum_amount = portal_state_info.sum_collateral_porting_waiting(
+            token_id, self)
+        logger.info(
+            f'{self.__to_me()} sum all waiting porting req collateral of token {l6(token_id)}: {sum_amount}')
         return sum_amount
 
     def portal_sum_my_matched_redeem_req_holding_token(self, token_id, portal_state_info=None):
         if portal_state_info is None:
             portal_state_info = self.REQ_HANDLER.get_latest_portal_state_info()
 
-        sum_amount = portal_state_info.sum_holding_token_matched_redeem_req(token_id, self)
-        logger.info(f'{self.__to_me()} sum all waiting redeem holding token of {l6(token_id)}: {sum_amount}')
+        sum_amount = portal_state_info.sum_holding_token_matched_redeem_req(
+            token_id, self)
+        logger.info(
+            f'{self.__to_me()} sum all waiting redeem holding token of {l6(token_id)}: {sum_amount}')
         return sum_amount
 
     def portal_req_unlock_collateral(self, token_id, amount_redeem, redeem_id, proof):
-        logger.info(f'{self.__to_me()} request unlock collateral: {l6(token_id)} {amount_redeem} {redeem_id}')
+        logger.info(
+            f'{self.__to_me()} request unlock collateral: {l6(token_id)} {amount_redeem} {redeem_id}')
         return self.REQ_HANDLER.portal(). \
             create_n_send_tx_with_req_unlock_collateral(self.private_key, self.payment_key, token_id, amount_redeem,
                                                         redeem_id, proof)
 
     def portal_withdraw_reward(self, token_id=PRV_ID):
         return self.REQ_HANDLER.portal(). \
-            create_n_send_tx_with_req_withdraw_reward_portal(self.private_key, self.payment_key, token_id)
+            create_n_send_tx_with_req_withdraw_reward_portal(
+                self.private_key, self.payment_key, token_id)
 
     def portal_get_prv_from_liquidation_pool(self, token_id, token_amount):
         return self.REQ_HANDLER.portal().create_n_send_redeem_liquidation_exchange_rates(
@@ -1467,10 +1562,12 @@ class Account:
 
     def convert_token_to_v2(self, token_id=PRV_ID, fee=-1):
         if token_id == PRV_ID:
-            convert_tx = self.REQ_HANDLER.transaction().create_convert_coin_ver1_to_ver2_transaction(self.private_key)
+            convert_tx = self.REQ_HANDLER.transaction(
+            ).create_convert_coin_ver1_to_ver2_transaction(self.private_key)
         else:
             convert_tx = self.REQ_HANDLER.transaction(). \
-                create_convert_coin_ver1_to_ver2_tx_token(self.private_key, token_id, fee)
+                create_convert_coin_ver1_to_ver2_tx_token(
+                    self.private_key, token_id, fee)
         return convert_tx
 
     def top_up_if_lower_than(self, account, lower, upper, token_id=PRV_ID, retry_interval=30, max_wait=180):
@@ -1503,7 +1600,8 @@ class Account:
                     receiver[acc] = top_up_amount
         if len(receiver) == 0:
             return None
-        logger.info(f"\n      TOP UP OTHERS'({len(receiver)} acc) TO {upper} (token {(l6(token_id))})\n{'=' * 80}")
+        logger.info(
+            f"\n      TOP UP OTHERS'({len(receiver)} acc) TO {upper} (token {(l6(token_id))})\n{'=' * 80}")
         # there's a max number of output in "createandsendtransaction" rpc, so must split into small batch of output
         each, length, start = 20, len(receiver), 0
         mid = each
@@ -1513,10 +1611,12 @@ class Account:
             sub_keys = keys[start:mid]
             logger.info(f'Batch: {start}->{len(sub_keys)}')
             sub_receivers = {k: receiver[k] for k in sub_keys}
-            send_tx = self.send_to_multi_account(sub_receivers, token_id=token_id)
+            send_tx = self.send_to_multi_account(
+                sub_receivers, token_id=token_id)
             if send_tx.get_error_msg():
                 # ideally should only retry if coin being used in another tx, but for now, just retry if there's any err
-                logger.info(f'{send_tx.get_error_trace().get_message()}. Wait then retry')
+                logger.info(
+                    f'{send_tx.get_error_trace().get_message()}. Wait then retry')
                 WAIT(retry_interval)
                 wasted_time += retry_interval
                 if wasted_time >= max_wait:
@@ -1533,7 +1633,8 @@ class Account:
 
         # thread_pool = []
         for acc, amount in receiver.items():
-            acc.wait_for_balance_change(token_id, from_balance=bal_receiver_b4_dict[acc])
+            acc.wait_for_balance_change(
+                token_id, from_balance=bal_receiver_b4_dict[acc])
 
     def submit_key(self, key_type='ota'):
         """
@@ -1549,7 +1650,8 @@ class Account:
             error = submit_response.get_error_trace().get_message()
         except AttributeError:
             error = None
-        logger.error(error) if error else logger.info(submit_response.get_result())
+        logger.error(error) if error else logger.info(
+            submit_response.get_result())
         return self
 
     def submit_key_status(self):
@@ -1599,7 +1701,8 @@ class AccountGroup:
             elif isinstance(item, list):
                 private_keys.append(item[0])
             else:
-                raise TypeError(f"Each item of list must be a string or a list which first item is a string")
+                raise TypeError(
+                    f"Each item of list must be a string or a list which first item is a string")
         return self.__get_acc_synchronous(private_keys)
 
     def load_from_file(self, file_path, num_of_key_to_load=None):
@@ -1690,7 +1793,8 @@ class AccountGroup:
         elif type(other) is Account:
             self.account_list.append(other)
             return AccountGroup(*self.account_list)
-        raise TypeError(f'Not support adding type {type(other)} with {__class__} ')
+        raise TypeError(
+            f'Not support adding type {type(other)} with {__class__} ')
 
     def attach_to_node(self, node):
         for acc in self:
@@ -1739,7 +1843,8 @@ class AccountGroup:
             for acc in to_submit:
                 tpe.submit(acc.submit_key, key_type)
         if wait_time:
-            logger.info(f"Indexing is in progress, wait for {min(wait_time, max_wait)}!!!")
+            logger.info(
+                f"Indexing is in progress, wait for {min(wait_time, max_wait)}!!!")
             WAIT(min(wait_time, max_wait))
         return self
 
@@ -1760,7 +1865,8 @@ class AccountGroup:
         return self
 
     def pde3_get_nft_ids(self, pde_state=None):
-        pde_state = self[0].REQ_HANDLER.pde3_get_state(key_filter="NftIDs") if not pde_state else pde_state
+        pde_state = self[0].REQ_HANDLER.pde3_get_state(
+            key_filter="NftIDs") if not pde_state else pde_state
         pde_state = self[0].REQ_HANDLER.pde3_get_state(key_filter="NftIDs") if pde_state.get_nft_id() == {} \
             else pde_state
         with ThreadPoolExecutor() as e:
@@ -1770,7 +1876,8 @@ class AccountGroup:
 
     def pde3_make_raw_trade_txs(self, token_sell, token_buy, trade_amount, min_acceptable, trade_path,
                                 trade_fee):
-        logger.info("Making multiple raw trade tx with same amount, fee, path...")
+        logger.info(
+            "Making multiple raw trade tx with same amount, fee, path...")
         futures = {}
         with ThreadPoolExecutor() as tpe:
             for acc in self:
@@ -1840,8 +1947,10 @@ class AccountGroup:
         while 1:
             to_remove = []
             with ThreadPoolExecutor() as tpe:
-                threads = {acc: tpe.submit(acc.list_utxo, PRV_ID) for acc in acc_to_defrag}
-            utxo_count = {acc: len(r.result().get_coins()) for acc, r in threads.items()}
+                threads = {acc: tpe.submit(acc.list_utxo, PRV_ID)
+                           for acc in acc_to_defrag}
+            utxo_count = {acc: len(r.result().get_coins())
+                          for acc, r in threads.items()}
             for acc, count in utxo_count.items():
                 print(f"{acc.private_key[-8:]} has {count} utxo")
                 if count < max_utxo:
@@ -1857,7 +1966,8 @@ class AccountGroup:
 
     def consolidate_balance(self, account_to, keep_amount, token=PRV_ID):
         balances = self.get_balance(token)
-        send_amount = {acc: balance - keep_amount for acc, balance in balances.items()}
+        send_amount = {acc: balance - keep_amount for acc,
+                       balance in balances.items()}
         with ThreadPoolExecutor() as tpe:
             if token == PRV_ID:
                 for acc, amount in send_amount.items():
@@ -1867,7 +1977,20 @@ class AccountGroup:
                 for acc, amount in send_amount.items():
                     tpe.submit(acc.send_token_to(account_to, token, amount))
 
+    def node_monitor_get_stat(self):
+        val_pub_k = [acc.validator_public_key for acc in self.account_list]
+        monitor_api = NodeMonitorApi()
+        return monitor_api.get_nodes_stat(val_pub_k)
 
-PORTAL_FEEDER = Account(ChainConfig.Portal.FEEDER_PRIVATE_K)
+    def node_monitor_find_unstaked(self):
+        unstaked = self.node_monitor_get_stat().get_unstaked()
+        unstaked_acc = []
+        for key in unstaked:
+            acc = self.find_account_by_key(key)
+            if acc:
+                unstaked_acc.append(acc)
+        return AccountGroup(*unstaked_acc)
+
+
 COIN_MASTER = Account(DAO_PRIVATE_K)
 BLACK_HOLE = Account("", BURNING_ADDR)

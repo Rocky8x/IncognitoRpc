@@ -63,7 +63,8 @@ class SystemRpc(BaseRpcApi):
             "insert_rule": insert_rule,
             "validator_rule": validator_rule
         }]
-        self.rpc_connection.with_method("setconsensusrule").with_params(param).execute()
+        self.rpc_connection.with_method(
+            "setconsensusrule").with_params(param).execute()
 
     def get_consensus_rule(self):
         return self.rpc_connection.with_method("getconsensusrule").with_params([]).execute()

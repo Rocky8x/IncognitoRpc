@@ -20,8 +20,9 @@ class ExploreRpc(BaseRpcApi):
             with_params([token_id]). \
             execute()
 
-    def get_reward_feature(self, epoch, feature_name='portal'):  # only portal feature for now
+    # only portal feature for now
+    def get_reward_feature(self, epoch, feature_name='portal'):
         return self.rpc_connection.with_method('getrewardfeature'). \
             with_params([{
-            "FeatureName": feature_name,
-            "Epoch": str(epoch)}]).execute()
+                "FeatureName": feature_name,
+                "Epoch": str(epoch)}]).execute()

@@ -252,12 +252,15 @@ class ResponseWithdrawStakingRewardStatus(ResponseStatusBase):
         all_reward = self.get_result("Receivers")
         if not (by_token and by_receiver):
             return all_reward
-        if by_receiver and not by_token:  # get amount by address, return {token: amount}
+        # get amount by address, return {token: amount}
+        if by_receiver and not by_token:
             return {token: value["Amount"] for token, value in all_reward.items() if by_receiver == value["Address"]}
-        if by_token and not by_receiver:  # get amount by token, return {receiver: amount}
+        # get amount by token, return {receiver: amount}
+        if by_token and not by_receiver:
             return all_reward[by_token]["Amount"]
         if by_token and by_receiver:
-            raise SyntaxError("Only support query amount by token nor by receiver, not both")
+            raise SyntaxError(
+                "Only support query amount by token nor by receiver, not both")
 
 
 class ResponseModifyParamStatus(ResponseStatusBase, PdeV3State.Param):
@@ -402,7 +405,8 @@ class DEXv3RPC(BaseRpcApi):
 
     def get_withdraw_protocol_fee_status(self, tx_id):
         return ResponseWithdrawProtocolFeeStatus(
-            self.rpc_connection.with_method("pdexv3_getWithdrawalProtocolFeeStatus")
+            self.rpc_connection.with_method(
+                "pdexv3_getWithdrawalProtocolFeeStatus")
             .with_params([{"ReqTxID": tx_id}]).execute())
 
     def get_staking_status(self, *tx_id):
@@ -495,7 +499,8 @@ class DEXv3RPC(BaseRpcApi):
 
     def get_withdrawal_staking_reward_status(self, tx_id):
         return ResponseWithdrawStakingRewardStatus(
-            self.rpc_connection.with_method("pdexv3_getWithdrawalStakingRewardStatus")
+            self.rpc_connection.with_method(
+                "pdexv3_getWithdrawalStakingRewardStatus")
             .with_params([{"ReqTxID": tx_id}]).execute())
 
     def modify_param(self, centralized_private_k, new_config_dict, main_tx_receivers=None, tx_fee=-1, tx_privacy=1):
@@ -557,7 +562,7 @@ class DEXv3RPC(BaseRpcApi):
         @param tx_privacy:
         @return:
         """
-        return ResponseWithdraw(self.rpc_connection.with_method("pdexv3_txWithdrawLiquidity") \
+        return ResponseWithdraw(self.rpc_connection.with_method("pdexv3_txWithdrawLiquidity")
                                 .with_params([private_k, main_tx_receivers, tx_fee, tx_privacy,
                                               {"NftID": nft_id,
                                                "PoolPairID": pool_pair_id,
