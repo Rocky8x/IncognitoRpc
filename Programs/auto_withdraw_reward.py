@@ -9,9 +9,10 @@ acc0 = accounts[0]
 retry = 3
 tx_fee = 10
 tx_fee_step = 5
+amount=int(400e9)
 while retry:
     try:
-        if acc0.stk_get_reward_amount() > int(200e9):
+        if acc0.stk_get_reward_amount() > amount:
             tx = acc0.stk_withdraw_reward_to_me(tx_fee=tx_fee).req_to(full_node).get_transaction_by_hash()
             if tx.is_confirmed():
                 break
