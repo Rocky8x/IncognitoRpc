@@ -1979,6 +1979,8 @@ class AccountGroup:
 
     def node_monitor_get_stat(self):
         val_pub_k = [acc.validator_public_key for acc in self.account_list]
+        val_pub_k = ",".join(val_pub_k)
+        breakpoint()
         monitor_api = NodeMonitorApi()
         return monitor_api.get_nodes_stat(val_pub_k)
 
