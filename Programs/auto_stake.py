@@ -2,7 +2,7 @@ from Objects.AccountObject import AccountGroup
 from Objects.NodeObject import Node
 
 node = Node("https://mfc88.ddns.net/fn")
-accounts = AccountGroup().load_from_file("Programs/key").attach_to_node(node)
+accounts = AccountGroup().load_from_file("Programs/keys").attach_to_node(node)
 funder = accounts[0]
 
 unstaked_accounts = accounts.node_monitor_find_unstaked()
