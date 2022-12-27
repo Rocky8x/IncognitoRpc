@@ -119,7 +119,7 @@ class NodeStat(NodeStatResponseBase):
         unstaked = []
         for node_stat in self.data:
             node = NodeStat.Node(node_stat)
-            if node.is_slashed:
+            if node.role == "Unstake":
                 unstaked.append(node.mining_pub_k)
         return unstaked
 
