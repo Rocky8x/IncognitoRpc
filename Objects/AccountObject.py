@@ -127,10 +127,6 @@ class Account:
         return self.payment_key
 
     @property
-    def validator_key(self):
-        return self.key_info['MiningKey']
-
-    @property
     def public_key(self):
         return self.key_info['PublicKey']
 
@@ -147,8 +143,16 @@ class Account:
         return self.key_info['OTAPrivateKey']
 
     @property
-    def committee_public_k(self):
+    def mining_key(self):
+        return self.key_info['MiningKey']
+
+    @property
+    def mining_public_key(self):
         return self.key_info['MiningPublicKey']
+
+    @property
+    def committee_public_k(self):
+        return self.mining_public_key
 
     @property
     def shard(self):
@@ -167,11 +171,6 @@ class Account:
             self.nft_ids.append(nft) if nft not in self.nft_ids else None
         self.nft_ids.sort()
         return self
-
-    def is_empty(self):
-        if self.private_key is None:
-            return True
-        return False
 
     def attach_to_node(self, node):
         """
@@ -240,8 +239,8 @@ class Account:
                  f'Payment key = {self.payment_key}'
         if self.read_only_key:
             string += f'\nRead only key = {self.read_only_key}'
-        if self.validator_key:
-            string += f'\nValidator key = {self.validator_key}'
+        if self.mining_key:
+            string += f'\nValidator key = {self.mining_key}'
         if self.public_key:
             string += f'\nPublic key = {self.public_key}'
         try:
@@ -254,9 +253,9 @@ class Account:
     def get_estimate_fee_and_size(self, receiver, amount, fee=-1, privacy=1):
         r = self.REQ_HANDLER.transaction().estimate_tx_fee(
             self.private_key, receiver.payment_key, amount, fee, privacy)
-        estimate_fee_coin_perkb = int(r.get_result('EstimateFeeCoinPerKb'))
-        estimate_txsize_inKb = int(r.get_result('EstimateTxSizeInKb'))
-        return estimate_fee_coin_perkb, estimate_txsize_inKb
+        estimate_fee_coin_per_kb = int(r.get_result('EstimateFeeCoinPerKb'))
+        estimate_tx_size_in_kb = int(r.get_result('EstimateTxSizeInKb'))
+        return estimate_fee_coin_per_kb, estimate_tx_size_in_kb
 
     def list_owned_custom_token(self):
         """
@@ -316,13 +315,13 @@ class Account:
             receiver_reward = self
         if not receiver_reward.payment_key:
             receiver_reward.find_payment_key()
-        if not validator.validator_key:
+        if not validator.mining_key:
             raise Exception("Validator key is not specified")
 
         logger.info(
-            f'{self.__me()} Stake for {l6(validator.validator_key)} and reward: {l6(receiver_reward.payment_key)}')
+            f'{self.__me()} Stake for {l6(validator.mining_key)} and reward: {l6(receiver_reward.payment_key)}')
         return self.REQ_HANDLER.transaction(). \
-            create_and_send_staking_transaction(self.private_key, validator.payment_key, validator.validator_key,
+            create_and_send_staking_transaction(self.private_key, validator.payment_key, validator.mining_key,
                                                 receiver_reward.payment_key, stake_amount, auto_re_stake,
                                                 TestConfig.TX_VER)
 
@@ -332,12 +331,12 @@ class Account:
 
         @return:
         """
-        logger.info(f"Stake and reward me: {self.validator_key}")
-        if not self.validator_key:
+        logger.info(f"Stake and reward me: {self.mining_key}")
+        if not self.mining_key:
             raise Exception("Validator key is not specified")
 
         return self.REQ_HANDLER.transaction(). \
-            create_and_send_staking_transaction(self.private_key, self.payment_key, self.validator_key,
+            create_and_send_staking_transaction(self.private_key, self.payment_key, self.mining_key,
                                                 self.payment_key, stake_amount, auto_re_stake, tx_version, tx_fee,
                                                 tx_privacy)
 
@@ -347,9 +346,9 @@ class Account:
 
         @return:
         """
-        logger.info(f'Stake {someone.validator_key} but reward me')
+        logger.info(f'Stake {someone.mining_key} but reward me')
         return self.REQ_HANDLER.transaction(). \
-            create_and_send_staking_transaction(self.private_key, someone.payment_key, someone.validator_key,
+            create_and_send_staking_transaction(self.private_key, someone.payment_key, someone.mining_key,
                                                 self.payment_key, stake_amount, auto_re_stake, tx_version, tx_fee)
 
     def stake_someone_reward_him(self, someone, stake_amount=ChainConfig.STK_AMOUNT, auto_re_stake=True,
@@ -358,15 +357,15 @@ class Account:
 
         @return:
         """
-        logger.info(f'Stake and reward other: f{someone.validator_key}')
+        logger.info(f'Stake and reward other: f{someone.mining_key}')
         return self.REQ_HANDLER.transaction(). \
-            create_and_send_staking_transaction(self.private_key, someone.payment_key, someone.validator_key,
+            create_and_send_staking_transaction(self.private_key, someone.payment_key, someone.mining_key,
                                                 someone.payment_key, stake_amount, auto_re_stake, tx_version)
 
     def stk_stop_auto_staking(self, reward_receiver, validator):
         return self.REQ_HANDLER.transaction(). \
             create_and_send_stop_auto_staking_transaction(self.private_key, reward_receiver.payment_key,
-                                                          validator.validator_key)
+                                                          validator.mining_key)
 
     def stk_stop_auto_stake_me(self):
         logger.info('Stop auto stake me')
@@ -376,18 +375,18 @@ class Account:
         if not validator:
             validator = self
         logger.info(
-            f'Un-stake transaction for validator: {validator.validator_key}')
+            f'Un-stake transaction for validator: {validator.mining_key}')
         return self.REQ_HANDLER.transaction(). \
-            create_and_send_un_staking_transaction(self.private_key, validator.payment_key, validator.validator_key,
+            create_and_send_un_staking_transaction(self.private_key, validator.payment_key, validator.mining_key,
                                                    tx_fee)
 
     def stk_stop_auto_stake_him(self, him):
-        logger.info(f"Stop auto stake other: {him.validator_key}")
+        logger.info(f"Stop auto stake other: {him.mining_key}")
         return self.stk_stop_auto_staking(him, him)
 
     def stk_wait_till_i_am_committee(self, timeout=ChainConfig.STK_WAIT_TIME_OUT):
         logger.info(
-            f"Wait until {self.validator_key} become a committee, timeout: {timeout}s")
+            f"Wait until {self.mining_key} become a committee, timeout: {timeout}s")
         time_start = datetime.datetime.now()
         time_spent = 0
         beacon_bsd = self.REQ_HANDLER.get_beacon_best_state_detail_info()
@@ -411,7 +410,7 @@ class Account:
                                                   timeout=ChainConfig.STK_WAIT_TIME_OUT):
         t = timeout
         logger.info(
-            f"Wait until {self.validator_key} exist in waiting next random, check every {check_cycle}s, timeout: {timeout}s")
+            f"Wait until {self.mining_key} exist in waiting next random, check every {check_cycle}s, timeout: {timeout}s")
         beacon_bsd = self.REQ_HANDLER.get_beacon_best_state_detail_info()
         while beacon_bsd.is_he_in_waiting_next_random(self) is False:
             WAIT(check_cycle)
@@ -432,7 +431,7 @@ class Account:
 
     def stk_wait_till_i_am_in_shard_pending(self, timeout=ChainConfig.STK_WAIT_TIME_OUT, sfv3=True):
         logger.info(
-            f"Wait until {self.validator_key} exist in shard pending, timeout: {timeout}s")
+            f"Wait until {self.mining_key} exist in shard pending, timeout: {timeout}s")
         time_start = datetime.datetime.now()
         time_spent = 0
         block_per_epoch = ChainConfig.BLOCK_PER_EPOCH
@@ -472,7 +471,7 @@ class Account:
 
     def stk_wait_till_i_am_in_sync_pool(self, timeout=ChainConfig.STK_WAIT_TIME_OUT):
         logger.info(
-            f"Wait until {self.validator_key} exist in sync pool, timeout: {timeout}s")
+            f"Wait until {self.mining_key} exist in sync pool, timeout: {timeout}s")
         time_start = datetime.datetime.now()
         time_spent = 0
         block_per_epoch = ChainConfig.BLOCK_PER_EPOCH
@@ -509,7 +508,7 @@ class Account:
 
     def stk_wait_till_i_am_out_of_autostaking_list(self, timeout=ChainConfig.STK_WAIT_TIME_OUT):
         logger.info(
-            f"Wait until {self.validator_key} does not exist in the autostaking list, timeout: {timeout}s")
+            f"Wait until {self.mining_key} does not exist in the autostaking list, timeout: {timeout}s")
         time_start = datetime.datetime.now()
         time_spent = 0
         beacon_bsd = self.REQ_HANDLER.get_beacon_best_state_detail_info()
@@ -532,7 +531,7 @@ class Account:
 
     def stk_wait_till_i_am_swapped_out_of_committee(self, timeout=ChainConfig.STK_WAIT_TIME_OUT):
         logger.info(
-            f"Wait until {self.validator_key} no longer a committee, timeout: {timeout}s")
+            f"Wait until {self.mining_key} no longer a committee, timeout: {timeout}s")
         time_start = datetime.datetime.now()
         time_spent = 0
         beacon_bsd = self.REQ_HANDLER.get_beacon_best_state_detail_info()
@@ -557,7 +556,7 @@ class Account:
         if token_id is None:
             token_id = 'PRV'
         logger.info(
-            f'Wait until {self.validator_key} has reward: {token_id}, check every {check_cycle}s, timeout: {timeout}s')
+            f'Wait until {self.mining_key} has reward: {token_id}, check every {check_cycle}s, timeout: {timeout}s')
         while self.stk_get_reward_amount(token_id) is None:
             WAIT(check_cycle)
             timeout -= check_cycle
@@ -1659,10 +1658,6 @@ class Account:
 
     def submit_key_authorize(self, from_height=0, re_index=False, access_token=ChainConfig.ACCESS_TOKEN):
         return self.REQ_HANDLER.transaction().submit_key_authorized(self.ota_k, access_token, from_height, re_index)
-
-    @staticmethod
-    def new():
-        pass
 
 
 class AccountGroup:
