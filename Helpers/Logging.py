@@ -42,7 +42,7 @@ logging.config.dictConfig({
     },
     'loggers': {
         '': {
-            'handlers': ['console', 'file_debug'] if os.getenv("DEBUG", 0) else 'console',
+            'handlers': ['console', 'file_debug'] if os.getenv("DEBUG", 0) else ['console'],
             'level': 'DEBUG',
             'propagate': False}, }})
 
